@@ -1,8 +1,8 @@
 """
-[`ZeroCodec`][numcodecs_zero.ZeroCodec] for the [`numcodecs`][numcodecs] buffer compression API.
+[`RPCodec`][numcodecs_random_projection.RPCodec] for the [`numcodecs`][numcodecs] buffer compression API.
 """
 
-__all__ = ["ZeroCodec"]
+__all__ = ["RPCodec"]
 
 from io import BytesIO
 
@@ -14,7 +14,7 @@ from numcodecs.abc import Codec
 from typing_extensions import Buffer  # MSPV 3.12
 
 
-class ZeroCodec(Codec):
+class RandomProjectionCodec(Codec):
     """
     Codec that decodes to an all-zero array of the same data type and shape as
     the original data.
@@ -25,7 +25,7 @@ class ZeroCodec(Codec):
 
     __slots__ = ()
 
-    codec_id: str = "zero"  # type: ignore
+    codec_id: str = "rp"  # type: ignore
 
     def encode(self, buf: Buffer) -> bytes:
         """
@@ -93,4 +93,4 @@ class ZeroCodec(Codec):
         return numcodecs.compat.ndarray_copy(decoded, out)  # type: ignore
 
 
-numcodecs.registry.register_codec(ZeroCodec)
+numcodecs.registry.register_codec(RandomProjectionCodec)

@@ -62,5 +62,5 @@ jobs:
       - name: Setup the Python venv
         run: uv sync --all-extras --dev
 
-      - name: Typecheck numcodecs-zero
-        run: uv run mypy -p numcodecs_zero
+      - name: Typecheck numcodecs-random-projection
+        run: uv run mypy -p numcodecs_random_projection

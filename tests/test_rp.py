@@ -4,13 +4,13 @@ import numpy as np
 
 
 def test_from_config():
-    codec = numcodecs.registry.get_codec(dict(id="zero"))
-    assert codec.__class__.__name__ == "ZeroCodec"
-    assert codec.__class__.__module__ == "numcodecs_zero"
+    codec = numcodecs.registry.get_codec(dict(id="rp"))
+    assert codec.__class__.__name__ == "RandomProjectionCodec"
+    assert codec.__class__.__module__ == "numcodecs_random_projection"
 
 
 def check_roundtrip(data: np.ndarray):
-    codec = numcodecs.registry.get_codec(dict(id="zero"))
+    codec = numcodecs.registry.get_codec(dict(id="rp"))
 
     encoded = codec.encode(data)
     decoded = codec.decode(encoded)

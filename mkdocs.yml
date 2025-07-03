@@ -1,4 +1,4 @@
-site_name: numcodecs-zero
+site_name: numcodecs-random-projection
 
 strict: true
 
@@ -16,8 +16,8 @@ theme:
 nav:
   - Home: index.md
   - Links:
-      - GitHub: https://github.com/juntyr/numcodecs-zero
-      - PyPI: https://pypi.org/project/numcodecs-zero/
+      - GitHub: https://github.com/Sidorow/numcodecs-random-projection
+      - PyPI: https://pypi.org/project/numcodecs-random-projection/
 
 plugins:
   - mkdocstrings-python-generator:
