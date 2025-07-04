@@ -4,14 +4,14 @@
 
 __all__ = ["RPCodec"]
 
-from io import BytesIO
+# from io import BytesIO
+# import varint
+from math import ceil
 
 import numcodecs.compat
 import numcodecs.registry
 import numpy as np
-import varint
 from numcodecs.abc import Codec
-from math import ceil
 from typing_extensions import Buffer  # MSPV 3.12
 
 
@@ -19,23 +19,20 @@ class RPCodec(Codec):
     def __init__(self, cr: None | float = None, k: None | int = None) -> None:
         self.cr = cr
         self.k = k
-        self.R = None
-        if cr is None and k is None:
-            raise ValueError("Parameters 'cr' or 'k' must be specified for RPCodec.")
-        
+        self.R: np.ndarray | None = None
+
     """
     Placeholder codec that encodes data using random projection.
     """
 
     codec_id: str = "rp"  # type: ignore
 
-    def _gen_R(self, D, K):
+    def _gen_R(self, D: int, K: int) -> np.ndarray:
         rng = np.random.default_rng()
-        R = rng.normal(0, 1/np.sqrt(K), size=(D, K))
+        R = rng.normal(0, 1 / np.sqrt(K), size=(D, K))
         return R.astype(np.float32)
 
     def encode(self, buf: Buffer) -> Buffer:
-
         """
         Encode the `buf`fer information.
 
@@ -50,11 +47,12 @@ class RPCodec(Codec):
             Encoded `buf`fer information as a bytestring.
         """
         a = numcodecs.compat.ensure_ndarray(buf)
-        
-        if self.k is None and self.cr is not None:
-            self.k = ceil(buf.shape[1] / self.cr)
 
-        dtype, shape = a.dtype, a.shape
+        if self.k is None:
+            if self.cr is not None:
+                self.k = ceil(a.shape[1] / self.cr)
+            else:
+                raise ValueError("Parameter 'cr' must be specified for RPCodec.")
 
         self.R = self._gen_R(a.shape[1], self.k)
         projected = np.matmul(a, self.R)
@@ -78,7 +76,16 @@ class RPCodec(Codec):
             Decoded data.
         """
         b = numcodecs.compat.ensure_ndarray(buf)
-        
+
+        if self.R is None:
+            raise ValueError(
+                "Codec has not been initialized with a random projection matrix R."
+            )
+        if self.k is None:
+            raise ValueError(
+                "Codec has not been initialized with the number of dimensions k."
+            )
+
         projected = b.reshape(b.shape[0], self.k)
         decoded = np.matmul(projected, self.R.T).astype(np.float32)
 
