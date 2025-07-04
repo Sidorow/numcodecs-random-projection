@@ -11,52 +11,55 @@ import numcodecs.registry
 import numpy as np
 import varint
 from numcodecs.abc import Codec
+from math import ceil
 from typing_extensions import Buffer  # MSPV 3.12
 
 
-class RandomProjectionCodec(Codec):
+class RPCodec(Codec):
+    def __init__(self, cr: None | float = None, k: None | int = None) -> None:
+        self.cr = cr
+        self.k = k
+        self.R = None
+        if cr is None and k is None:
+            raise ValueError("Parameters 'cr' or 'k' must be specified for RPCodec.")
+        
     """
-    Codec that decodes to an all-zero array of the same data type and shape as
-    the original data.
-
-    Encoding produces a bytestring containing information on the data type and
-    shape.
+    Placeholder codec that encodes data using random projection.
     """
-
-    __slots__ = ()
 
     codec_id: str = "rp"  # type: ignore
 
-    def encode(self, buf: Buffer) -> bytes:
+    def _gen_R(self, D, K):
+        rng = np.random.default_rng()
+        R = rng.normal(0, 1/np.sqrt(K), size=(D, K))
+        return R.astype(np.float32)
+
+    def encode(self, buf: Buffer) -> Buffer:
+
         """
         Encode the `buf`fer information.
 
         Parameters
         ----------
         buf : Buffer
-            Data to be encoded. May be any object supporting the new-style
-            buffer protocol.
+            Data to be encoded.
 
         Returns
         -------
         enc : bytes
             Encoded `buf`fer information as a bytestring.
         """
-
         a = numcodecs.compat.ensure_ndarray(buf)
+        
+        if self.k is None and self.cr is not None:
+            self.k = ceil(buf.shape[1] / self.cr)
+
         dtype, shape = a.dtype, a.shape
 
-        # message: dtype shape
-        message = []
+        self.R = self._gen_R(a.shape[1], self.k)
+        projected = np.matmul(a, self.R)
 
-        message.append(varint.encode(len(dtype.str)))
-        message.append(dtype.str.encode("ascii"))
-
-        message.append(varint.encode(len(shape)))
-        for s in shape:
-            message.append(varint.encode(s))
-
-        return b"".join(message)
+        return projected
 
     def decode(self, buf: Buffer, out: None | Buffer = None) -> Buffer:
         """
@@ -65,32 +68,21 @@ class RandomProjectionCodec(Codec):
         Parameters
         ----------
         buf : Buffer
-            Encoded buffer information. Must be an object representing a
-            bytestring, e.g. [`bytes`][bytes] or a 1D array of
-            [`np.uint8`][numpy.uint8]s etc.
+            Encoded buffer information.
         out : Buffer, optional
-            Writeable buffer to store decoded data. N.B. if provided, this
-            buffer must be exactly the right size to store the decoded data.
+            Writeable buffer to store decoded data.
 
         Returns
         -------
         dec : Buffer
-            Decoded data. May be any object supporting the new-style buffer
-            protocol. The decoded data will be all-zero after decoding.
+            Decoded data.
         """
-
-        b = numcodecs.compat.ensure_bytes(buf)
-
-        b_io = BytesIO(b)
-
-        dtype = np.dtype(b_io.read(varint.decode_stream(b_io)).decode("ascii"))
-        shape = tuple(
-            varint.decode_stream(b_io) for _ in range(varint.decode_stream(b_io))
-        )
-
-        decoded = np.zeros(shape, dtype)
+        b = numcodecs.compat.ensure_ndarray(buf)
+        
+        projected = b.reshape(b.shape[0], self.k)
+        decoded = np.matmul(projected, self.R.T).astype(np.float32)
 
         return numcodecs.compat.ndarray_copy(decoded, out)  # type: ignore
 
 
-numcodecs.registry.register_codec(RandomProjectionCodec)
+numcodecs.registry.register_codec(RPCodec)
