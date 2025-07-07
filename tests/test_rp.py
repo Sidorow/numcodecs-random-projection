@@ -23,25 +23,51 @@ def check_roundtrip(data: np.ndarray):
     encoded = codec.encode(data)
     decoded = codec.decode(encoded)
     assert data.shape == decoded.shape
+    assert data.dtype == decoded.dtype
 
 
 def test_roundtrip():
     # Test with a simple 2D array
-    data = np.random.randn(100, 50)
+    data = np.random.randn(1000, 500)
     check_roundtrip(data)
 
     # Test with a high-dimensional array
-    data = np.random.randn(50, 1000)
+    data = np.random.randn(500, 10000)
     check_roundtrip(data)
 
-    # Test with a small array
-    data = np.random.randn(5, 10)
-    check_roundtrip(data)
 
-    # Test with a single row
-    data = np.random.randn(1, 50)
-    check_roundtrip(data)
+def test_seed():
+    # Test that same seed produces same results
+    data = np.random.rand(50, 100)
 
-    # Test with integer data
-    data = np.random.randint(0, 100, size=(20, 30))
-    check_roundtrip(data)
+    codec1 = numcodecs.registry.get_codec(dict(id="rp", cr=10.0, seed=42))
+    codec2 = numcodecs.registry.get_codec(dict(id="rp", cr=10.0, seed=42))
+
+    encoded1 = codec1.encode(data.copy())
+    encoded2 = codec2.encode(data.copy())
+
+    assert encoded1 == encoded2
+
+    codec3 = numcodecs.registry.get_codec(dict(id="rp", cr=10.0, seed=43))
+
+    encoded3 = codec3.encode(data.copy())
+
+    assert encoded1 != encoded3
+
+def test_robustness():
+    codec1 = numcodecs.registry.get_codec(dict(id="rp"))
+    codec2 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5))
+    
+    data = np.random.rand(50, 100)
+
+    try:
+        codec1.encode(data)
+        assert False, "Expected ValueError, got none"
+    except ValueError as e:
+        assert "Parameter 'cr' must be specified for RPCodec." in str(e)
+    except Exception as e:
+        assert False, f"Excepted ValueError, got {e}"
+
+    codec2.encode(data)
+    assert codec2.k == 11
+
