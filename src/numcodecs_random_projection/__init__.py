@@ -4,6 +4,7 @@
 
 __all__ = ["RPCodec"]
 
+import warnings
 from io import BytesIO
 from math import ceil
 
@@ -16,10 +17,12 @@ from typing_extensions import Buffer  # MSPV 3.12
 
 
 class RPCodec(Codec):
-    def __init__(self, cr: None | float = None, k: None | int = None) -> None:
+    def __init__(
+        self, cr: None | float = None, k: None | int = None, seed: int | None = None
+    ) -> None:
         self.cr = cr
         self.k = k
-        self.R: np.ndarray | None = None
+        self.seed = seed
 
     """
     Placeholder codec that encodes data using random projection.
@@ -27,8 +30,8 @@ class RPCodec(Codec):
 
     codec_id: str = "rp"  # type: ignore
 
-    def _gen_R(self, D: int, K: int) -> np.ndarray:
-        rng = np.random.default_rng()
+    def _gen_R(self, D: int, K: int, seed: int) -> np.ndarray:
+        rng = np.random.default_rng(seed)
         R = rng.normal(0, 1 / np.sqrt(K), size=(D, K))
         return R.astype(np.float32)
 
@@ -51,14 +54,24 @@ class RPCodec(Codec):
         original_shape = a.shape
         original_dtype = a.dtype
 
-        if self.k is None:
+        if self.k is not None and self.cr is not None:
+            warnings.warn(
+                f"Both 'cr' ({self.cr}) and 'k' ({self.k}) specified."
+                f"Using 'k' = {self.k}",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        elif self.k is None:
             if self.cr is not None:
                 self.k = ceil(a.shape[1] / self.cr)
             else:
-                raise ValueError("Parameter 'cr' must be specified for RPCodec.")
+                raise ValueError("Parameter 'cr' or 'k' must be specified for RPCodec.")
 
-        self.R = self._gen_R(a.shape[1], self.k)
-        projected = np.matmul(a, self.R)
+        R = self._gen_R(a.shape[1], self.k, self.seed)
+        a_32 = a.astype(np.float32)
+
+        projected = np.matmul(a_32, R)
 
         bio = BytesIO()
 
@@ -72,11 +85,11 @@ class RPCodec(Codec):
 
         bio.write(varint.encode(self.k))
 
-        R_bytes = self.R.astype(np.float32).tobytes()
+        R_bytes = R.astype(np.float32).tobytes()
         bio.write(varint.encode(len(R_bytes)))
         bio.write(R_bytes)
 
-        proj_bytes = projected.astype(np.float32).tobytes()
+        proj_bytes = projected.tobytes()
         bio.write(varint.encode(len(proj_bytes)))
         bio.write(proj_bytes)
 
@@ -123,6 +136,9 @@ class RPCodec(Codec):
 
         reconstructed = reconstructed.astype(original_dtype).reshape(original_shape)
         return numcodecs.compat.ndarray_copy(reconstructed, out)  # type: ignore
+
+    def get_config(self) -> dict:
+        return dict(id="rp", cr=self.cr, k=self.k)
 
 
 numcodecs.registry.register_codec(RPCodec)
