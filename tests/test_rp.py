@@ -54,20 +54,26 @@ def test_seed():
 
     assert encoded1 != encoded3
 
+
 def test_robustness():
     codec1 = numcodecs.registry.get_codec(dict(id="rp"))
     codec2 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5))
-    
+    codec3 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5, k=20))
+
     data = np.random.rand(50, 100)
 
     try:
         codec1.encode(data)
         assert False, "Expected ValueError, got none"
     except ValueError as e:
-        assert "Parameter 'cr' must be specified for RPCodec." in str(e)
+        assert "Parameter 'cr' or 'k' must be specified for RPCodec." in str(e)
     except Exception as e:
         assert False, f"Excepted ValueError, got {e}"
 
+    # Should correctly calculate k from cr
     codec2.encode(data)
     assert codec2.k == 11
 
+    # Should use k over cr when both are specified
+    codec3.encode(data)
+    assert codec3.k == 20
