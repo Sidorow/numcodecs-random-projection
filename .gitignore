@@ -4,6 +4,7 @@
 /.ruff_cache
 /uv.lock
 /test_implementation.py
+RandomCompressionAnalysis.ipynb
 
 /build
 /site
