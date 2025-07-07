@@ -4,13 +4,13 @@
 
 __all__ = ["RPCodec"]
 
-# from io import BytesIO
-# import varint
+from io import BytesIO
 from math import ceil
 
 import numcodecs.compat
 import numcodecs.registry
 import numpy as np
+import varint
 from numcodecs.abc import Codec
 from typing_extensions import Buffer  # MSPV 3.12
 
@@ -48,6 +48,9 @@ class RPCodec(Codec):
         """
         a = numcodecs.compat.ensure_ndarray(buf)
 
+        original_shape = a.shape
+        original_dtype = a.dtype
+
         if self.k is None:
             if self.cr is not None:
                 self.k = ceil(a.shape[1] / self.cr)
@@ -57,7 +60,27 @@ class RPCodec(Codec):
         self.R = self._gen_R(a.shape[1], self.k)
         projected = np.matmul(a, self.R)
 
-        return projected
+        bio = BytesIO()
+
+        bio.write(varint.encode(len(original_shape)))
+        for dim in original_shape:
+            bio.write(varint.encode(dim))
+
+        dtype_str = original_dtype.str.encode("ascii")
+        bio.write(varint.encode(len(dtype_str)))
+        bio.write(dtype_str)
+
+        bio.write(varint.encode(self.k))
+
+        R_bytes = self.R.astype(np.float32).tobytes()
+        bio.write(varint.encode(len(R_bytes)))
+        bio.write(R_bytes)
+
+        proj_bytes = projected.astype(np.float32).tobytes()
+        bio.write(varint.encode(len(proj_bytes)))
+        bio.write(proj_bytes)
+
+        return bio.getvalue()
 
     def decode(self, buf: Buffer, out: None | Buffer = None) -> Buffer:
         """
@@ -75,21 +98,31 @@ class RPCodec(Codec):
         dec : Buffer
             Decoded data.
         """
-        b = numcodecs.compat.ensure_ndarray(buf)
+        bio = BytesIO(buf)
 
-        if self.R is None:
-            raise ValueError(
-                "Codec has not been initialized with a random projection matrix R."
-            )
-        if self.k is None:
-            raise ValueError(
-                "Codec has not been initialized with the number of dimensions k."
-            )
+        ndim = varint.decode_stream(bio)
+        original_shape = tuple(varint.decode_stream(bio) for _ in range(ndim))
 
-        projected = b.reshape(b.shape[0], self.k)
-        decoded = np.matmul(projected, self.R.T).astype(np.float32)
+        dtype_len = varint.decode_stream(bio)
+        dtype_str = bio.read(dtype_len).decode("ascii")
+        original_dtype = np.dtype(dtype_str)
 
-        return numcodecs.compat.ndarray_copy(decoded, out)  # type: ignore
+        k = varint.decode_stream(bio)
+
+        R_len = varint.decode_stream(bio)
+        R_bytes = bio.read(R_len)
+        R = np.frombuffer(R_bytes, dtype=np.float32).reshape((original_shape[1], k))
+
+        proj_len = varint.decode_stream(bio)
+        proj_bytes = bio.read(proj_len)
+        projected = np.frombuffer(proj_bytes, dtype=np.float32).reshape(
+            (original_shape[0], k)
+        )
+
+        reconstructed = np.matmul(projected, R.T)
+
+        reconstructed = reconstructed.astype(original_dtype).reshape(original_shape)
+        return numcodecs.compat.ndarray_copy(reconstructed, out)  # type: ignore
 
 
 numcodecs.registry.register_codec(RPCodec)
