@@ -30,7 +30,7 @@ class RPCodec(Codec):
 
     codec_id: str = "rp"  # type: ignore
 
-    def _gen_R(self, D: int, K: int, seed: int) -> np.ndarray:
+    def _gen_R(self, D: int, K: int, seed: int | None = None) -> np.ndarray:
         rng = np.random.default_rng(seed)
         R = rng.normal(0, 1 / np.sqrt(K), size=(D, K))
         return R.astype(np.float32)
