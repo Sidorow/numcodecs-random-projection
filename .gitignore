@@ -5,6 +5,7 @@
 /uv.lock
 /test_implementation.py
 RPAnalysis.ipynb
+.ipynb_checkpoints/
 
 /build
 /site
