@@ -54,10 +54,9 @@ class RPCodec(Codec):
         original_shape = a.shape
         original_dtype = a.dtype
 
-        if self.k is not None and self.cr is not None:
+        if self.k and self.cr:
             warnings.warn(
-                f"Both 'cr' ({self.cr}) and 'k' ({self.k}) specified."
-                f"Using 'k' = {self.k}",
+                f"Both 'cr' ({self.cr}) and 'k' ({self.k}) specified.\n Using 'k' = {self.k}",
                 UserWarning,
                 stacklevel=2,
             )
