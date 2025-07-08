@@ -17,7 +17,11 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["mypy~=1.14", "pytest~=8.3"]
+dev = [
+    "ipykernel>=6.29.5",
+    "mypy~=1.14",
+ "pytest~=8.3",
+]
 
 [project.entry-points."numcodecs.codecs"]
 "rp" = "numcodecs_random_projection:RPCodec"
