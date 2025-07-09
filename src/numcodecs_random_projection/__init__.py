@@ -184,7 +184,7 @@ class RPCodec(Codec):
         return numcodecs.compat.ndarray_copy(reconstructed, out)  # type: ignore
 
     def get_config(self) -> dict:
-        return dict(id="rp", cr=self.cr, k=self.k)
+        return dict(id="rp", cr=self.cr, k=self.k, seed=self.seed)
 
 
 numcodecs.registry.register_codec(RPCodec)
