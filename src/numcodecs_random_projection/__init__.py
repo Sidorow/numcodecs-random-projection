@@ -29,7 +29,7 @@ class RPCodec(Codec):
     ) -> None:
         """
         Initialize Random Projection codec.
-    
+
         Parameters
         ----------
         cr : float, optional
@@ -50,7 +50,6 @@ class RPCodec(Codec):
         self.cr = cr
         self.k = k
         self.seed = seed
-
 
     codec_id: str = "rp"  # type: ignore
 
