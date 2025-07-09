@@ -17,37 +17,85 @@ from typing_extensions import Buffer  # MSPV 3.12
 
 
 class RPCodec(Codec):
+    """
+    Random projection codec for lossy compression of numerical data.
+
+    Compresses 2D data by projecting it onto a lower-dimensional subspace using a random Gaussian matrix.
+
+    """
+
     def __init__(
         self, cr: None | float = None, k: None | int = None, seed: int | None = None
     ) -> None:
+        """
+        Initialize Random Projection codec.
+    
+        Parameters
+        ----------
+        cr : float, optional
+            Target compression ratio. If specified, k will be calculated as D/cr
+            where D is the number of features in the input data.
+        k : int, optional
+            Number of dimensions in the projected space. Will be used over cr if
+            both are specified.
+        seed : int, optional
+            Random seed for reproducible results. If None, results will be
+            non-deterministic.
+
+        Raises
+        ------
+        ValueError
+            If neither cr nor k is specified during encoding.
+        """
         self.cr = cr
         self.k = k
         self.seed = seed
 
-    """
-    Placeholder codec that encodes data using random projection.
-    """
 
     codec_id: str = "rp"  # type: ignore
 
     def _gen_R(self, D: int, K: int, seed: int | None = None) -> np.ndarray:
+        """
+        Generate a random projection matrix using Gaussian distribution.
+
+        Creates a DxK matrix with entries drawn from N(0, 1/√K) distribution,
+        which preserves expected distances according to Johnson-Lindenstrauss lemma.
+
+        Parameters
+        ----------
+        D : int
+            Input dimensionality (number of features)
+        K : int
+            Output dimensionality (number of projected features)
+        seed : int, optional
+            Random seed of reproducible matrix generation
+
+        Returns
+        -------
+        np.ndarray
+            Random projection matrix of shape (D, K) with dtype float32
+        """
         rng = np.random.default_rng(seed)
         R = rng.normal(0, 1 / np.sqrt(K), size=(D, K))
         return R.astype(np.float32)
 
     def encode(self, buf: Buffer) -> Buffer:
         """
-        Encode the `buf`fer information.
+        Encode data using random projection.
 
         Parameters
         ----------
         buf : Buffer
-            Data to be encoded.
+            Input data buffer. Must be a 2D array with shape (n_samples, d_deatures).
 
         Returns
         -------
         enc : bytes
-            Encoded `buf`fer information as a bytestring.
+            Serialized encoded data containing:
+            - Original data shape and dtype
+            - Projection matrix R
+            - Projected data
+            - Compression parameters
         """
         a = numcodecs.compat.ensure_ndarray(buf)
 
@@ -96,19 +144,19 @@ class RPCodec(Codec):
 
     def decode(self, buf: Buffer, out: None | Buffer = None) -> Buffer:
         """
-        Decode the `buf`fer information.
+        Decode random projection encoded data.
 
         Parameters
         ----------
         buf : Buffer
-            Encoded buffer information.
+            Encoded data from RPCodec.
         out : Buffer, optional
             Writeable buffer to store decoded data.
 
         Returns
         -------
         dec : Buffer
-            Decoded data.
+            Reconstructed data with original shape and dtype.
         """
         bio = BytesIO(buf)
 
