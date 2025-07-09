@@ -51,6 +51,16 @@ class RPCodec(Codec):
         self.k = k
         self.seed = seed
 
+        if self.k and self.cr:
+            warnings.warn(
+                f"Both 'cr' ({self.cr}) and 'k' ({self.k}) specified.\n Using 'k' = {self.k}",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        elif self.k is None and self.cr is None:
+            raise ValueError("Parameter 'cr' or 'k' must be specified for RPCodec.")
+
     codec_id: str = "rp"  # type: ignore
 
     def _gen_R(self, D: int, K: int, seed: int | None = None) -> np.ndarray:
@@ -101,18 +111,11 @@ class RPCodec(Codec):
         original_shape = a.shape
         original_dtype = a.dtype
 
-        if self.k and self.cr:
-            warnings.warn(
-                f"Both 'cr' ({self.cr}) and 'k' ({self.k}) specified.\n Using 'k' = {self.k}",
-                UserWarning,
-                stacklevel=2,
-            )
-
-        elif self.k is None:
+        if self.k is None:
             if self.cr is not None:
                 self.k = ceil(a.shape[1] / self.cr)
-            else:
-                raise ValueError("Parameter 'cr' or 'k' must be specified for RPCodec.")
+
+        assert self.k is not None
 
         R = self._gen_R(a.shape[1], self.k, self.seed)
         a_32 = a.astype(np.float32)
