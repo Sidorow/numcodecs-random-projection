@@ -7,6 +7,7 @@ __all__ = ["RPCodec"]
 import warnings
 from io import BytesIO
 from math import ceil
+from sys import byteorder
 
 import numcodecs.compat
 import numcodecs.registry
@@ -138,6 +139,17 @@ class RPCodec(Codec):
         bio.write(varint.encode(self.k))
         bio.write(varint.encode(self.seed))
 
+        projected_byteorder = projected.dtype.byteorder
+
+        projected_byteorder = (
+            projected_byteorder
+            if projected_byteorder in ("<", ">")
+            else ("<" if (byteorder == "little") else ">")
+        )
+
+        if projected_byteorder != "<":
+            projected = projected.byteswap()
+
         proj_bytes = projected.tobytes()
         bio.write(varint.encode(len(proj_bytes)))
         bio.write(proj_bytes)
@@ -160,7 +172,10 @@ class RPCodec(Codec):
         dec : Buffer
             Reconstructed data with original shape and dtype.
         """
-        bio = BytesIO(buf)
+
+        data = numcodecs.compat.ensure_bytes(buf)
+
+        bio = BytesIO(data)
 
         ndim = varint.decode_stream(bio)
         original_shape = tuple(varint.decode_stream(bio) for _ in range(ndim))
@@ -174,9 +189,21 @@ class RPCodec(Codec):
 
         proj_len = varint.decode_stream(bio)
         proj_bytes = bio.read(proj_len)
-        projected = np.frombuffer(proj_bytes, dtype=np.float32).reshape(
-            (original_shape[0], k)
+
+        projected = np.frombuffer(
+            proj_bytes, dtype=np.dtype("f4").newbyteorder("<")
+        ).reshape((original_shape[0], k))
+
+        projected_byteorder = projected.dtype.byteorder
+
+        projected_byteorder = (
+            projected_byteorder
+            if projected_byteorder in ("<", ">")
+            else ("<" if (byteorder == "little") else ">")
         )
+
+        if byteorder == "big":
+            projected = projected.byteswap()
 
         R = self._gen_R(original_shape[1], k, seed)
         reconstructed = np.matmul(projected, R.T)
