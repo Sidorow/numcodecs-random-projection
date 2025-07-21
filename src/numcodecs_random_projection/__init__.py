@@ -7,6 +7,7 @@ __all__ = ["RPCodec"]
 import warnings
 from io import BytesIO
 from math import ceil
+from sys import byteorder
 
 import numcodecs.compat
 import numcodecs.registry
@@ -49,7 +50,11 @@ class RPCodec(Codec):
         """
         self.cr = cr
         self.k = k
-        self.seed = seed
+
+        if seed is None:
+            self.seed = np.random.randint(0, 2**31 - 1)
+        else:
+            self.seed = seed
 
         if self.k and self.cr:
             warnings.warn(
@@ -95,32 +100,31 @@ class RPCodec(Codec):
         Parameters
         ----------
         buf : Buffer
-            Input data buffer. Must be a 2D array with shape (n_samples, d_deatures).
+            Input data buffer. Must be a 2D array with shape (n_samples, d_features).
 
         Returns
         -------
         enc : bytes
             Serialized encoded data containing:
             - Original data shape and dtype
-            - Projection matrix R
             - Projected data
             - Compression parameters
         """
-        a = numcodecs.compat.ensure_ndarray(buf)
+        data = numcodecs.compat.ensure_ndarray(buf)
 
-        original_shape = a.shape
-        original_dtype = a.dtype
+        original_shape = data.shape
+        original_dtype = data.dtype
 
         if self.k is None:
             if self.cr is not None:
-                self.k = ceil(a.shape[1] / self.cr)
+                self.k = ceil(data.shape[1] / self.cr)
 
         assert self.k is not None
 
-        R = self._gen_R(a.shape[1], self.k, self.seed)
-        a_32 = a.astype(np.float32)
+        R = self._gen_R(data.shape[1], self.k, self.seed)
+        data_32 = data.astype(np.float32)
 
-        projected = np.matmul(a_32, R)
+        projected = np.matmul(data_32, R)
 
         bio = BytesIO()
 
@@ -133,10 +137,18 @@ class RPCodec(Codec):
         bio.write(dtype_str)
 
         bio.write(varint.encode(self.k))
+        bio.write(varint.encode(self.seed))
 
-        R_bytes = R.astype(np.float32).tobytes()
-        bio.write(varint.encode(len(R_bytes)))
-        bio.write(R_bytes)
+        projected_byteorder = projected.dtype.byteorder
+
+        projected_byteorder = (
+            projected_byteorder
+            if projected_byteorder in ("<", ">")
+            else ("<" if (byteorder == "little") else ">")
+        )
+
+        if projected_byteorder != "<":
+            projected = projected.byteswap()
 
         proj_bytes = projected.tobytes()
         bio.write(varint.encode(len(proj_bytes)))
@@ -160,7 +172,10 @@ class RPCodec(Codec):
         dec : Buffer
             Reconstructed data with original shape and dtype.
         """
-        bio = BytesIO(buf)
+
+        data = numcodecs.compat.ensure_bytes(buf)
+
+        bio = BytesIO(data)
 
         ndim = varint.decode_stream(bio)
         original_shape = tuple(varint.decode_stream(bio) for _ in range(ndim))
@@ -170,17 +185,27 @@ class RPCodec(Codec):
         original_dtype = np.dtype(dtype_str)
 
         k = varint.decode_stream(bio)
-
-        R_len = varint.decode_stream(bio)
-        R_bytes = bio.read(R_len)
-        R = np.frombuffer(R_bytes, dtype=np.float32).reshape((original_shape[1], k))
+        seed = varint.decode_stream(bio)
 
         proj_len = varint.decode_stream(bio)
         proj_bytes = bio.read(proj_len)
-        projected = np.frombuffer(proj_bytes, dtype=np.float32).reshape(
-            (original_shape[0], k)
+
+        projected = np.frombuffer(
+            proj_bytes, dtype=np.dtype("f4").newbyteorder("<")
+        ).reshape((original_shape[0], k))
+
+        projected_byteorder = projected.dtype.byteorder
+
+        projected_byteorder = (
+            projected_byteorder
+            if projected_byteorder in ("<", ">")
+            else ("<" if (byteorder == "little") else ">")
         )
 
+        if byteorder == "big":
+            projected = projected.byteswap()
+
+        R = self._gen_R(original_shape[1], k, seed)
         reconstructed = np.matmul(projected, R.T)
 
         reconstructed = reconstructed.astype(original_dtype).reshape(original_shape)

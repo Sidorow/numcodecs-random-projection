@@ -1,6 +1,7 @@
 import numcodecs
 import numcodecs.registry
 import numpy as np
+import pytest
 
 
 def test_from_config():
@@ -55,15 +56,15 @@ def test_seed():
     assert encoded1 != encoded3
 
 
-def test_robustness():
-    try:
+def test_invalid_codec():
+    # Test that missing parameters raises error
+    with pytest.raises(
+        ValueError, match="Parameter 'cr' or 'k' must be specified for RPCodec."
+    ):
         numcodecs.registry.get_codec(dict(id="rp"))
-        assert False, "Expected ValueError, got none"
-    except ValueError as e:
-        assert "Parameter 'cr' or 'k' must be specified for RPCodec." in str(e)
-    except Exception as e:
-        assert False, f"Excepted ValueError, got {e}"
 
+
+def test_robustness():
     codec2 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5))
     codec3 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5, k=20))
 
