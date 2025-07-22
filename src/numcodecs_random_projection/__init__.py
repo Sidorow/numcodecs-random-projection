@@ -8,7 +8,6 @@ import warnings
 from io import BytesIO
 from math import ceil
 from sys import byteorder
-from scipy.fftpack import dct
 
 import numcodecs.compat
 import numcodecs.registry
@@ -31,7 +30,7 @@ class RPCodec(Codec):
         cr: None | float = None,
         k: None | int = None,
         method: str = "dct",
-        seed: int | None = None
+        seed: int | None = None,
     ) -> None:
         """
         Initialize Random Projection codec.
@@ -58,7 +57,9 @@ class RPCodec(Codec):
         self.method = method
 
         if self.method not in ["dct", "gaussian"]:
-            raise ValueError(f"Unknown method '{self.method}'. Supported methods: 'dct', 'gaussian'.")
+            raise ValueError(
+                f"Unknown method '{self.method}'. Supported methods: 'dct', 'gaussian'."
+            )
 
         if seed is None:
             self.seed = np.random.randint(0, 2**31 - 1)
@@ -103,15 +104,19 @@ class RPCodec(Codec):
             Projection matrix of shape (D, K) with dtype float32
         """
         if self.method == "dct":
+
             def alpha(m):
                 return np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
-            I, M  = np.meshgrid(
+
+            input_idx, output_idx = np.meshgrid(
                 np.arange(D, dtype=np.float32),
                 np.arange(K, dtype=np.float32),
                 indexing="ij",
             )
-            R = alpha(M) * np.cos((np.pi * (2 * I + 1) * M) / (2 * D))
-            #R = dct(np.eye(D), type=2, norm="ortho")[:, :K]
+
+            R = alpha(output_idx) * np.cos(
+                (np.pi * (2 * input_idx + 1) * output_idx) / (2 * D)
+            )
             return R.astype(np.float32)
         else:
             rng = np.random.default_rng(seed)
