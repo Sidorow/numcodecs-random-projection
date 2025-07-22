@@ -57,6 +57,9 @@ class RPCodec(Codec):
         self.k = k
         self.method = method
 
+        if self.method not in ["dct", "gaussian"]:
+            raise ValueError(f"Unknown method '{self.method}'. Supported methods: 'dct', 'gaussian'.")
+
         if seed is None:
             self.seed = np.random.randint(0, 2**31 - 1)
         else:
@@ -110,12 +113,10 @@ class RPCodec(Codec):
             R = alpha(M) * np.cos((np.pi * (2 * I + 1) * M) / (2 * D))
             #R = dct(np.eye(D), type=2, norm="ortho")[:, :K]
             return R.astype(np.float32)
-        elif self.method == "gaussian":
+        else:
             rng = np.random.default_rng(seed)
             R = rng.normal(0, 1 / np.sqrt(K), size=(D, K))
             return R.astype(np.float32)
-        else:
-            raise ValueError(f"Unknown method '{self.method}'. Supported methods: 'dct', 'gaussian'.")
 
     def encode(self, buf: Buffer) -> Buffer:
         """
