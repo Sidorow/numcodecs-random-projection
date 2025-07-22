@@ -20,7 +20,9 @@ def test_from_config():
 
 def check_roundtrip(data: np.ndarray):
     codec_dct = numcodecs.registry.get_codec(dict(id="rp", method="dct", cr=10.0))
-    codec_gaussian = numcodecs.registry.get_codec(dict(id="rp", method="gaussian", cr=10.0))
+    codec_gaussian = numcodecs.registry.get_codec(
+        dict(id="rp", method="gaussian", cr=10.0)
+    )
 
     encoded = codec_dct.encode(data)
     decoded = codec_dct.decode(encoded)
@@ -47,8 +49,12 @@ def test_seed():
     # Test that same seed produces same results
     data = np.random.rand(50, 100)
 
-    codec1 = numcodecs.registry.get_codec(dict(id="rp", method="gaussian", cr=10.0, seed=42))
-    codec2 = numcodecs.registry.get_codec(dict(id="rp", method="gaussian", cr=10.0, seed=42))
+    codec1 = numcodecs.registry.get_codec(
+        dict(id="rp", method="gaussian", cr=10.0, seed=42)
+    )
+    codec2 = numcodecs.registry.get_codec(
+        dict(id="rp", method="gaussian", cr=10.0, seed=42)
+    )
 
     encoded1 = codec1.encode(data.copy())
     encoded2 = codec2.encode(data.copy())
@@ -68,10 +74,8 @@ def test_invalid_codec():
         ValueError, match="Parameter 'cr' or 'k' must be specified for RPCodec."
     ):
         numcodecs.registry.get_codec(dict(id="rp"))
-    
-    with pytest.raises(
-        ValueError, match=r"Unknown method"
-    ):
+
+    with pytest.raises(ValueError, match=r"Unknown method"):
         numcodecs.registry.get_codec(dict(id="rp", method="invalid_method"))
 
 
