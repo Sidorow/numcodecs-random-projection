@@ -8,6 +8,7 @@ import warnings
 from io import BytesIO
 from math import ceil
 from sys import byteorder
+from scipy.fftpack import dct
 
 import numcodecs.compat
 import numcodecs.registry
@@ -26,7 +27,11 @@ class RPCodec(Codec):
     """
 
     def __init__(
-        self, cr: None | float = None, k: None | int = None, seed: int | None = None
+        self,
+        cr: None | float = None,
+        k: None | int = None,
+        method: str = "dct",
+        seed: int | None = None
     ) -> None:
         """
         Initialize Random Projection codec.
@@ -50,6 +55,7 @@ class RPCodec(Codec):
         """
         self.cr = cr
         self.k = k
+        self.method = method
 
         if seed is None:
             self.seed = np.random.randint(0, 2**31 - 1)
@@ -70,10 +76,14 @@ class RPCodec(Codec):
 
     def _gen_R(self, D: int, K: int, seed: int | None = None) -> np.ndarray:
         """
-        Generate a random projection matrix using Gaussian distribution.
+        Generate a projection matrix using specified method.
 
-        Creates a DxK matrix with entries drawn from N(0, 1/√K) distribution,
-        which preserves expected distances according to Johnson-Lindenstrauss lemma.
+        DCT method:
+            Generates a projection matrix R using Discrete Cosine Transform (DCT) basis.
+
+        Gaussian method:
+            Creates a random DxK matrix R with entries drawn from N(0, 1/√K) distribution,
+            which preserves expected distances according to Johnson-Lindenstrauss lemma.
 
         Parameters
         ----------
@@ -87,11 +97,25 @@ class RPCodec(Codec):
         Returns
         -------
         np.ndarray
-            Random projection matrix of shape (D, K) with dtype float32
+            Projection matrix of shape (D, K) with dtype float32
         """
-        rng = np.random.default_rng(seed)
-        R = rng.normal(0, 1 / np.sqrt(K), size=(D, K))
-        return R.astype(np.float32)
+        if self.method == "dct":
+            def alpha(m):
+                return np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
+            I, M  = np.meshgrid(
+                np.arange(D, dtype=np.float32),
+                np.arange(K, dtype=np.float32),
+                indexing="ij",
+            )
+            R = alpha(M) * np.cos((np.pi * (2 * I + 1) * M) / (2 * D))
+            #R = dct(np.eye(D), type=2, norm="ortho")[:, :K]
+            return R.astype(np.float32)
+        elif self.method == "gaussian":
+            rng = np.random.default_rng(seed)
+            R = rng.normal(0, 1 / np.sqrt(K), size=(D, K))
+            return R.astype(np.float32)
+        else:
+            raise ValueError(f"Unknown method '{self.method}'. Supported methods: 'dct', 'gaussian'.")
 
     def encode(self, buf: Buffer) -> Buffer:
         """
