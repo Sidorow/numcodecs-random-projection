@@ -21,7 +21,8 @@ class RPCodec(Codec):
     """
     Random projection codec for lossy compression of numerical data.
 
-    Compresses 2D data by projecting it onto a lower-dimensional subspace using a random Gaussian matrix.
+    Compresses 2D data by projecting it onto a lower-dimensional subspace using a specified method.
+    Discrete Cosine Transform (DCT) is used by default.
 
     """
 
@@ -43,9 +44,13 @@ class RPCodec(Codec):
         k : int, optional
             Number of dimensions in the projected space. Will be used over cr if
             both are specified.
+        method : str, default "dct"
+            Method for generating the projection matrix. Supported methods:
+            - "dct": Uses Discrete Cosine Transform basis.
+            - "gaussian": Uses Gaussian random projection.
         seed : int, optional
             Random seed for reproducible results. If None, results will be
-            non-deterministic.
+            non-deterministic when using the Gaussian method.
 
         Raises
         ------
