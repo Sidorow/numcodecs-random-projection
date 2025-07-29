@@ -122,6 +122,7 @@ class RPCodec(Codec):
             R = alpha(output_idx) * np.cos(
                 (np.pi * (2 * input_idx + 1) * output_idx) / (2 * D)
             )
+
             return R.astype(np.float32)
         else:
             rng = np.random.default_rng(seed)
