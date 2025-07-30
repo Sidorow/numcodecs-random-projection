@@ -83,7 +83,9 @@ class RPCodec(Codec):
 
     codec_id: str = "rp"  # type: ignore
 
-    def _gen_R(self, D: int, K: int, seed: int | None = None) -> np.ndarray:
+    def _gen_R(
+        self, D: int, K: int, dtype: np.dtype, seed: int | None = None
+    ) -> np.ndarray:
         """
         Generate a projection matrix using specified method.
 
@@ -106,7 +108,7 @@ class RPCodec(Codec):
         Returns
         -------
         np.ndarray
-            Projection matrix of shape (D, K) with dtype float32
+            Projection matrix of shape (D, K)
         """
         if self.method == "dct":
 
@@ -114,8 +116,8 @@ class RPCodec(Codec):
                 return np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
 
             i, m = np.meshgrid(
-                np.arange(D, dtype=np.float32),
-                np.arange(K, dtype=np.float32),
+                np.arange(D, dtype=dtype),
+                np.arange(K, dtype=dtype),
                 indexing="ij",
             )
 
@@ -125,7 +127,7 @@ class RPCodec(Codec):
             rng = np.random.default_rng(seed)
             R = rng.normal(0, 1 / np.sqrt(K), size=(D, K))
 
-        return R.astype(np.float32)
+        return R.astype(dtype)
 
     def encode(self, buf: Buffer) -> Buffer:
         """
@@ -146,6 +148,9 @@ class RPCodec(Codec):
         """
         data = numcodecs.compat.ensure_ndarray(buf)
 
+        if not np.issubdtype(data.dtype, np.floating):
+            raise ValueError(f"RPCodec requires floating-point data, got {data.dtype}")
+
         original_shape = data.shape
         original_dtype = data.dtype
 
@@ -155,10 +160,9 @@ class RPCodec(Codec):
 
         assert self.k is not None
 
-        R = self._gen_R(data.shape[1], self.k, self.seed)
-        data_32 = data.astype(np.float32)
+        R = self._gen_R(data.shape[1], self.k, original_dtype, self.seed)
 
-        projected = np.matmul(data_32, R)
+        projected = np.matmul(data, R)
 
         bio = BytesIO()
 
@@ -225,7 +229,7 @@ class RPCodec(Codec):
         proj_bytes = bio.read(proj_len)
 
         projected = np.frombuffer(
-            proj_bytes, dtype=np.dtype("f4").newbyteorder("<")
+            proj_bytes, dtype=original_dtype.newbyteorder("<")
         ).reshape((original_shape[0], k))
 
         projected_byteorder = projected.dtype.byteorder
@@ -239,10 +243,10 @@ class RPCodec(Codec):
         if byteorder == "big":
             projected = projected.byteswap()
 
-        R = self._gen_R(original_shape[1], k, seed)
+        R = self._gen_R(original_shape[1], k, original_dtype, seed)
         reconstructed = np.matmul(projected, R.T)
 
-        reconstructed = reconstructed.astype(original_dtype).reshape(original_shape)
+        reconstructed = reconstructed.reshape(original_shape)
         return numcodecs.compat.ndarray_copy(reconstructed, out)  # type: ignore
 
     def get_config(self) -> dict:
