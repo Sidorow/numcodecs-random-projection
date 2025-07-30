@@ -88,7 +88,7 @@ class RPCodec(Codec):
         Generate a projection matrix using specified method.
 
         DCT method:
-            Generates a projection matrix R using Discrete Cosine Transform (DCT) basis.
+            Generates a DxK projection matrix R using Type II Discrete Cosine Transform (DCT) basis.
 
         Gaussian method:
             Creates a random DxK matrix R with entries drawn from N(0, 1/√K) distribution,
@@ -113,21 +113,19 @@ class RPCodec(Codec):
             def alpha(m):
                 return np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
 
-            input_idx, output_idx = np.meshgrid(
+            i, m = np.meshgrid(
                 np.arange(D, dtype=np.float32),
                 np.arange(K, dtype=np.float32),
                 indexing="ij",
             )
 
-            R = alpha(output_idx) * np.cos(
-                (np.pi * (2 * input_idx + 1) * output_idx) / (2 * D)
-            )
+            R = alpha(m) * np.cos((np.pi * (2 * i + 1) * m) / (2 * D))
 
-            return R.astype(np.float32)
         else:
             rng = np.random.default_rng(seed)
             R = rng.normal(0, 1 / np.sqrt(K), size=(D, K))
-            return R.astype(np.float32)
+
+        return R.astype(np.float32)
 
     def encode(self, buf: Buffer) -> Buffer:
         """
