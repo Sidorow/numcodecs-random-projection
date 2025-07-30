@@ -84,6 +84,14 @@ def test_invalid_codec():
         numcodecs.registry.get_codec(dict(id="rp", method="invalid_method"))
 
 
+def test_invalid_data():
+    # Test that non-floating-point data raises error
+    codec = numcodecs.registry.get_codec(dict(id="rp", cr=10.0))
+
+    with pytest.raises(ValueError, match=r"RPCodec requires floating-point data"):
+        codec.encode(np.random.randint(50, 100, size=(3, 4)))
+
+
 def test_robustness():
     codec2 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5))
     codec3 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5, k=20))
