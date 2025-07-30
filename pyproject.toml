@@ -12,15 +12,20 @@ requires-python = ">=3.10"
 dependencies = [
     "numcodecs>=0.13.0,<0.17",
     "numpy~=2.0",
-    "scipy>=1.15.3",
-    "tool>=0.8.0",
     "typing-extensions~=4.6",
     "varint~=1.0",
-    "xarray>=2025.6.1",
 ]
 
 [dependency-groups]
-dev = ["mypy~=1.14", "pytest~=8.3"]
+dev = [
+    "mypy~=1.14",
+    "pytest~=8.3",
+]
+
+test = [
+    "scipy>=1.15.3",
+    "xarray>=2025.6.1",
+]
 
 [project.entry-points."numcodecs.codecs"]
 "rp" = "numcodecs_random_projection:RPCodec"
