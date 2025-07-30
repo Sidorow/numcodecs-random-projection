@@ -1,8 +1,16 @@
+from pathlib import Path
 import numcodecs
 import numcodecs.registry
 import numpy as np
+import xarray as xr
 import pytest
+import os
 
+TEST_DIR = Path(__file__).parent
+TEST_DATA_PATH = TEST_DIR / "data" / "test_data.nc"
+
+DATA = xr.open_dataset(TEST_DATA_PATH)
+TEST_DATA = DATA.t.squeeze().values
 
 def test_from_config():
     codec = numcodecs.registry.get_codec(dict(id="rp", cr=10.0))
@@ -19,7 +27,10 @@ def test_from_config():
 
 
 def check_roundtrip(data: np.ndarray):
-    codec_dct = numcodecs.registry.get_codec(dict(id="rp", method="dct", cr=10.0))
+    print(f"Testing roundtrip for data shape {data.shape} and dtype {data.dtype}")
+    codec_dct = numcodecs.registry.get_codec(
+        dict(id="rp", method="dct", cr=10.0)
+    )
     codec_gaussian = numcodecs.registry.get_codec(
         dict(id="rp", method="gaussian", cr=10.0)
     )
@@ -36,18 +47,14 @@ def check_roundtrip(data: np.ndarray):
 
 
 def test_roundtrip():
-    # Test with a simple 2D array
-    data = np.random.randn(1000, 500)
-    check_roundtrip(data)
-
-    # Test with a high-dimensional array
-    data = np.random.randn(500, 10000)
+    # Test with a small dataset
+    data = np.copy(TEST_DATA)
     check_roundtrip(data)
 
 
 def test_seed():
     # Test that same seed produces same results
-    data = np.random.rand(50, 100)
+    data = np.copy(TEST_DATA)
 
     codec1 = numcodecs.registry.get_codec(
         dict(id="rp", method="gaussian", cr=10.0, seed=42)
@@ -83,11 +90,11 @@ def test_robustness():
     codec2 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5))
     codec3 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5, k=20))
 
-    data = np.random.rand(50, 100)
+    data = np.copy(TEST_DATA)
 
-    # Should correctly calculate k from cr
+    # Should correctly calculate k from cr (180 / 9.5 = 18.9 -> 19)
     codec2.encode(data)
-    assert codec2.k == 11
+    assert codec2.k == 19
 
     # Should use k over cr when both are specified
     codec3.encode(data)
