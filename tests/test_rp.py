@@ -1,16 +1,17 @@
 from pathlib import Path
+
 import numcodecs
 import numcodecs.registry
 import numpy as np
-import xarray as xr
 import pytest
-import os
+import xarray as xr
 
 TEST_DIR = Path(__file__).parent
 TEST_DATA_PATH = TEST_DIR / "data" / "test_data.nc"
 
 DATA = xr.open_dataset(TEST_DATA_PATH)
 TEST_DATA = DATA.t.squeeze().values
+
 
 def test_from_config():
     codec = numcodecs.registry.get_codec(dict(id="rp", cr=10.0))
@@ -28,9 +29,7 @@ def test_from_config():
 
 def check_roundtrip(data: np.ndarray):
     print(f"Testing roundtrip for data shape {data.shape} and dtype {data.dtype}")
-    codec_dct = numcodecs.registry.get_codec(
-        dict(id="rp", method="dct", cr=10.0)
-    )
+    codec_dct = numcodecs.registry.get_codec(dict(id="rp", method="dct", cr=10.0))
     codec_gaussian = numcodecs.registry.get_codec(
         dict(id="rp", method="gaussian", cr=10.0)
     )
