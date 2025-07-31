@@ -148,8 +148,15 @@ class RPCodec(Codec):
         """
         data = numcodecs.compat.ensure_ndarray(buf)
 
-        if not np.issubdtype(data.dtype, np.floating):
-            raise ValueError(f"RPCodec requires floating-point data, got {data.dtype}")
+        validations = [
+            not np.issubdtype(data.dtype, np.floating),
+            data.ndim != 2,
+        ]
+
+        if any(validations):
+            raise ValueError(
+                f"RPCodec requires 2D floating-point data, got {data.dtype} and {data.ndim}D data"
+            )
 
         original_shape = data.shape
         original_dtype = data.dtype
