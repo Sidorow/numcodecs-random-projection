@@ -164,6 +164,8 @@ class RPCodec(Codec):
 
         R = self._gen_R(data.shape[1], self.k, original_dtype, self.seed)
 
+        np.nan_to_num(data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+
         projected = np.matmul(data, R)
 
         bio = BytesIO()
