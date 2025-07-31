@@ -100,8 +100,17 @@ def test_invalid_data():
 def test_robustness():
     codec2 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5))
     codec3 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5, k=20))
+    codec4 = numcodecs.registry.get_codec(dict(id="rp", cr=10))
+    codec5 = numcodecs.registry.get_codec(dict(id="rp", cr=10))
 
     data = np.copy(TEST_DATA)
+
+    # Create NaN and Inf data
+    nan_data = np.copy(data)
+    nan_data.fill(np.nan)
+
+    inf_data = np.copy(data)
+    inf_data.fill(np.inf)
 
     # Should correctly calculate k from cr (180 / 9.5 = 18.9 -> 19)
     codec2.encode(data)
@@ -110,3 +119,15 @@ def test_robustness():
     # Should use k over cr when both are specified
     codec3.encode(data)
     assert codec3.k == 20
+
+    # Should handle NaN and Inf values correctly
+    # NaN and inf values should be replaced with 0.0
+    nan_encode = codec4.encode(nan_data)
+    nan_decoded = codec4.decode(nan_encode)
+    assert not np.isnan(nan_decoded).any()
+    assert not np.any(nan_decoded)
+
+    inf_encode = codec5.encode(inf_data)
+    inf_decoded = codec5.decode(inf_encode)
+    assert not np.isinf(inf_decoded).any()
+    assert not np.any(inf_decoded)
