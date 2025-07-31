@@ -88,8 +88,13 @@ def test_invalid_data():
     # Test that non-floating-point data raises error
     codec = numcodecs.registry.get_codec(dict(id="rp", cr=10.0))
 
-    with pytest.raises(ValueError, match=r"RPCodec requires floating-point data"):
+    # Test with integer data
+    with pytest.raises(ValueError, match=r"RPCodec requires .* floating-point data"):
         codec.encode(np.random.randint(50, 100, size=(3, 4)))
+
+    # Test with non-2D data
+    with pytest.raises(ValueError, match=r"RPCodec requires 2D .* data"):
+        codec.encode(np.random.randn(50, 100, 3))
 
 
 def test_robustness():
