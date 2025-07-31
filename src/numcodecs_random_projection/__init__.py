@@ -111,17 +111,12 @@ class RPCodec(Codec):
             Projection matrix of shape (D, K)
         """
         if self.method == "dct":
+            i = np.arange(D, dtype=dtype).reshape(-1, 1)
+            m = np.arange(K, dtype=dtype).reshape(1, -1)
 
-            def alpha(m):
-                return np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
+            alpha_m = np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
 
-            i, m = np.meshgrid(
-                np.arange(D, dtype=dtype),
-                np.arange(K, dtype=dtype),
-                indexing="ij",
-            )
-
-            R = alpha(m) * np.cos((np.pi * (2 * i + 1) * m) / (2 * D))
+            R = alpha_m * np.cos((np.pi * (2 * i + 1) * m) / (2 * D))
 
         else:
             rng = np.random.default_rng(seed)
