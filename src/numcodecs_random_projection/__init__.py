@@ -5,6 +5,7 @@
 __all__ = ["RPCodec"]
 
 import warnings
+import sys
 from io import BytesIO
 from math import ceil
 from sys import byteorder
@@ -83,6 +84,41 @@ class RPCodec(Codec):
 
     codec_id: str = "rp"  # type: ignore
 
+    def _project_blocks(self, data: np.ndarray, D: int, K: int, dtype: np.dtype, block_size: int) -> np.ndarray:
+        projected_blocks = []
+        for k_start in range(0, K, block_size):
+            k_end = min(k_start + block_size, K)
+            actual_block_size = k_end - k_start
+
+            R_block = self._gen_R_block(D, k_start, dtype, actual_block_size)
+            block_proj = np.matmul(data, R_block)
+            projected_blocks.append(block_proj)
+
+            del R_block
+        projected = np.concatenate(projected_blocks, axis=1).astype(dtype)
+        print(f"Size of projected data: {sys.getsizeof(projected) / 1024**2:.2f} MB")
+        return projected
+
+    def _reconstruct_blocks(self, projected: np.ndarray, D: int, K: int, dtype: np.dtype, block_size: int) -> np.ndarray:
+        reconstructed_blocks = np.zeros((projected.shape[0], D), dtype=dtype)
+        for k_start in range(0, K, block_size):
+            k_end = min(k_start + block_size, K)
+            actual_block_size = k_end - k_start
+        
+            R_block = self._gen_R_block(D, k_start, dtype, actual_block_size)
+            R_block_T = R_block.T
+            print(f"Size of R block: {sys.getsizeof(R_block_T) / 1024**2:.2f} MB")
+            del R_block
+        
+            projected_block = projected[:, k_start:k_end]
+            rec_block = np.matmul(projected_block, R_block_T)
+        
+            reconstructed_blocks += rec_block
+            del R_block_T, rec_block
+    
+        print(f"Size of reconstructed data: {sys.getsizeof(reconstructed_blocks) / 1024**2:.2f} MB")
+        return reconstructed_blocks
+
     def _gen_R(
         self, D: int, K: int, dtype: np.dtype, seed: int | None = None
     ) -> np.ndarray:
@@ -123,6 +159,23 @@ class RPCodec(Codec):
             R = rng.normal(0, 1 / np.sqrt(K), size=(D, K))
 
         return R.astype(dtype)
+    
+    def _gen_R_block(self, D: int, k_start: int, dtype: np.dtype, block_size: int) -> np.ndarray:
+        """
+        Work In Progress
+        For dct only for now. Implement for gaussian maybe later.
+
+        Generate a block of the projection matrix R for memory efficiency.
+        """
+        i = np.arange(D, dtype=dtype).reshape(-1, 1)
+        m = np.arange(k_start, k_start + block_size, dtype=dtype).reshape(1, -1)
+
+        alpha_m = np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
+
+        R_block = alpha_m * np.cos((np.pi * (2 * i + 1) * m) / (2 * D))
+        print(f"Generated R block with shape {R_block.shape} for k_start={k_start}, block_size={block_size}")
+
+        return R_block
 
     def encode(self, buf: Buffer) -> Buffer:
         """
@@ -162,11 +215,15 @@ class RPCodec(Codec):
 
         assert self.k is not None
 
-        R = self._gen_R(data.shape[1], self.k, original_dtype, self.seed)
-
         np.nan_to_num(data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-
-        projected = np.matmul(data, R)
+        
+        if self.k > 1000:
+            print("Using on-demand projection for large k to save memory.")
+            block_size = 500
+            projected = self._project_blocks(data, D=data.shape[1], K=self.k, dtype=original_dtype, block_size=block_size)
+        else:
+            R = self._gen_R(data.shape[1], self.k, original_dtype, self.seed)
+            projected = np.matmul(data, R)
 
         bio = BytesIO()
 
@@ -247,8 +304,13 @@ class RPCodec(Codec):
         if byteorder == "big":
             projected = projected.byteswap()
 
-        R = self._gen_R(original_shape[1], k, original_dtype, seed)
-        reconstructed = np.matmul(projected, R.T)
+        if k > 1000:
+            print("Using block-wise reconstruction")
+            block_size = 500
+            reconstructed = self._reconstruct_blocks(projected, original_shape[1], k, original_dtype, block_size)
+        else:
+            R = self._gen_R(original_shape[1], k, original_dtype, seed)
+            reconstructed = np.matmul(projected, R.T)
 
         reconstructed = reconstructed.reshape(original_shape)
         return numcodecs.compat.ndarray_copy(reconstructed, out)  # type: ignore
