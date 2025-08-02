@@ -73,6 +73,21 @@ def test_seed():
     assert encoded1 != encoded3
 
 
+def test_block_vs_full_matrix():
+    # Test that block and full matrix methods produce same results
+    codec = numcodecs.registry.get_codec(dict(id="rp", method="dct", cr=5.0))
+
+    data = np.random.randn(100, 50)
+
+    projected_blocks = codec._project_blocks(data, 50, 10, data.dtype, block_size=5)
+
+    full_R = codec._gen_R(50, 10, data.dtype)
+    projected_full = np.matmul(data, full_R)
+
+    np.testing.assert_array_almost_equal(projected_blocks, projected_full, decimal=5)
+    assert projected_blocks.shape == (100, 10)
+
+
 def test_invalid_codec():
     # Test that missing or invalid parameters raises error
     with pytest.raises(
