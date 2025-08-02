@@ -50,6 +50,24 @@ def test_roundtrip():
     check_roundtrip(data)
 
 
+def test_roundtrip_blocks():
+    # Test with a small dataset using blocks
+    data = np.copy(TEST_DATA)
+    codec = numcodecs.registry.get_codec(dict(id="rp", method="dct", k=20))
+
+    # Force block usage by calling the block methods directly
+    projected = codec._project_blocks(
+        data, data.shape[1], 20, data.dtype, block_size=10
+    )
+
+    reconstructed = codec._reconstruct_blocks(
+        projected, data.shape[1], 20, data.dtype, block_size=10
+    )
+
+    assert reconstructed.shape == data.shape
+    assert reconstructed.dtype == data.dtype
+
+
 def test_seed():
     # Test that same seed produces same results
     data = np.copy(TEST_DATA)
@@ -71,6 +89,21 @@ def test_seed():
     encoded3 = codec3.encode(data.copy())
 
     assert encoded1 != encoded3
+
+
+def test_block_vs_full_matrix():
+    # Test that block and full matrix methods produce same results
+    codec = numcodecs.registry.get_codec(dict(id="rp", method="dct", cr=5.0))
+
+    data = np.random.randn(100, 50)
+
+    projected_blocks = codec._project_blocks(data, 50, 10, data.dtype, block_size=5)
+
+    full_R = codec._gen_R(50, 10, data.dtype)
+    projected_full = np.matmul(data, full_R)
+
+    np.testing.assert_array_almost_equal(projected_blocks, projected_full, decimal=5)
+    assert projected_blocks.shape == (100, 10)
 
 
 def test_invalid_codec():
