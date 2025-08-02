@@ -50,6 +50,24 @@ def test_roundtrip():
     check_roundtrip(data)
 
 
+def test_roundtrip_blocks():
+    # Test with a small dataset using blocks
+    data = np.copy(TEST_DATA)
+    codec = numcodecs.registry.get_codec(dict(id="rp", method="dct", k=20))
+
+    # Force block usage by calling the block methods directly
+    projected = codec._project_blocks(
+        data, data.shape[1], 20, data.dtype, block_size=10
+    )
+
+    reconstructed = codec._reconstruct_blocks(
+        projected, data.shape[1], 20, data.dtype, block_size=10
+    )
+
+    assert reconstructed.shape == data.shape
+    assert reconstructed.dtype == data.dtype
+
+
 def test_seed():
     # Test that same seed produces same results
     data = np.copy(TEST_DATA)
