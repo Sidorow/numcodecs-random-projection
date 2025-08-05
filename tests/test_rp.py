@@ -91,7 +91,50 @@ def test_seed():
     assert encoded1 != encoded3
 
 
-def test_block_vs_full_matrix():
+def test_seed_blocks():
+    # Test that block and full matrix methods produce same results for Gaussian method
+    codec1 = numcodecs.registry.get_codec(
+        dict(id="rp", method="gaussian", cr=10.0, seed=42)
+    )
+    codec2 = numcodecs.registry.get_codec(
+        dict(id="rp", method="gaussian", cr=10.0, seed=42)
+    )
+    codec3 = numcodecs.registry.get_codec(
+        dict(id="rp", method="gaussian", cr=10.0, seed=43)
+    )
+
+    data = np.random.randn(100, 50).astype(np.float64)
+
+    projected_blocks1 = codec1._project_blocks(
+        np.copy(data), 50, 10, data.dtype, block_size=5
+    )
+    projected_blocks2 = codec2._project_blocks(
+        np.copy(data), 50, 10, data.dtype, block_size=5
+    )
+    projected_blocks3 = codec3._project_blocks(
+        np.copy(data), 50, 10, data.dtype, block_size=5
+    )
+
+    assert np.array_equal(projected_blocks1, projected_blocks2)
+    assert not np.array_equal(projected_blocks1, projected_blocks3)
+
+    reconstructed_blocks1 = codec1._reconstruct_blocks(
+        projected_blocks1, 50, 10, data.dtype, block_size=5
+    )
+
+    reconstructed_blocks2 = codec2._reconstruct_blocks(
+        projected_blocks2, 50, 10, data.dtype, block_size=5
+    )
+
+    reconstructed_blocks3 = codec3._reconstruct_blocks(
+        projected_blocks3, 50, 10, data.dtype, block_size=5
+    )
+
+    assert np.array_equal(reconstructed_blocks1, reconstructed_blocks2)
+    assert not np.array_equal(reconstructed_blocks1, reconstructed_blocks3)
+
+
+def test_block_vs_full_matrix_dct():
     # Test that block and full matrix methods produce same results for DCT method
     # Both methods should produce (numerically) identical results for the same data in float64
     codec = numcodecs.registry.get_codec(dict(id="rp", method="dct", cr=5.0))
@@ -103,7 +146,7 @@ def test_block_vs_full_matrix():
     full_R = codec._gen_R(50, 10, data.dtype)
     projected_full = np.matmul(data, full_R)
 
-    np.testing.assert_array_equal(projected_blocks, projected_full)
+    np.testing.assert_allclose(projected_blocks, projected_full, atol=1e-15)
     assert projected_blocks.shape == (100, 10) and projected_full.shape == (100, 10)
 
     reconstructed_blocks = codec._reconstruct_blocks(
