@@ -129,7 +129,13 @@ class RPCodec(Codec):
         return projected
 
     def _reconstruct_blocks(
-        self, projected: np.ndarray, D: int, K: int, dtype: np.dtype, block_size: int
+        self,
+        projected: np.ndarray,
+        D: int,
+        K: int,
+        dtype: np.dtype,
+        block_size: int,
+        seed: int,
     ) -> np.ndarray:
         """
         Reconstruct data using block-wise matrix generation.
@@ -161,9 +167,7 @@ class RPCodec(Codec):
             k_end = min(k_start + block_size, K)
             actual_block_size = k_end - k_start
 
-            R_block = self._gen_R_block(
-                D, K, k_start, dtype, actual_block_size, self.seed
-            )
+            R_block = self._gen_R_block(D, K, k_start, dtype, actual_block_size, seed)
             R_block_T = R_block.T
             del R_block
 
@@ -388,7 +392,7 @@ class RPCodec(Codec):
         if k > 1000:
             block_size = 500
             reconstructed = self._reconstruct_blocks(
-                projected, original_shape[1], k, original_dtype, block_size
+                projected, original_shape[1], k, original_dtype, block_size, seed
             )
         else:
             R = self._gen_R(original_shape[1], k, original_dtype, seed)
