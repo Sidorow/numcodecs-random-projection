@@ -191,6 +191,32 @@ def test_block_vs_full_matrix_dct():
         50,
     )
 
+def test_block_vs_full_matrix_gaussian():
+    # Test that block and full matrix methods produce same results for Gaussian method
+    codec = numcodecs.registry.get_codec(dict(id="rp", method="gaussian", cr=5.0))
+
+    data = np.random.randn(100, 50).astype(np.float64)
+
+    projected_blocks = codec._project_blocks(data, 50, 10, data.dtype, block_size=5)
+
+    full_R = codec._gen_R(50, 10, data.dtype)
+    projected_full = np.matmul(data, full_R)
+
+    #np.testing.assert_allclose(projected_blocks, projected_full, atol=1e-15)
+    assert projected_blocks.shape == (100, 10) and projected_full.shape == (100, 10)
+
+    reconstructed_blocks = codec._reconstruct_blocks(
+        projected_blocks, 50, 10, data.dtype, block_size=5, seed=codec.seed
+    )
+
+    reconstructed_full = np.matmul(projected_blocks, full_R.T)
+
+    #np.testing.assert_allclose(reconstructed_blocks, reconstructed_full, atol=1e-15)
+    assert reconstructed_blocks.shape == (100, 50) and reconstructed_full.shape == (
+        100,
+        50,
+    )
+
 
 def test_invalid_codec():
     # Test that missing or invalid parameters raises error

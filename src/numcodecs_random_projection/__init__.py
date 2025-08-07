@@ -113,13 +113,16 @@ class RPCodec(Codec):
             Projected data with shape (N, K)
         """
         projected_blocks = []
+        philox = Philox(seed=self.seed)
+        rng = Generator(philox)
         for k_start in range(0, K, block_size):
             k_end = min(k_start + block_size, K)
             actual_block_size = k_end - k_start
 
             R_block = self._gen_R_block(
-                D, K, k_start, dtype, actual_block_size, self.seed
+                D, K, k_start, dtype, actual_block_size, rng
             )
+            
             block_proj = np.matmul(data, R_block)
             projected_blocks.append(block_proj)
 
@@ -163,11 +166,13 @@ class RPCodec(Codec):
             Reconstructed data with shape (N, D)
         """
         reconstructed_blocks = np.zeros((projected.shape[0], D), dtype=dtype)
+        philox = Philox(seed=seed)
+        rng = Generator(philox)
         for k_start in range(0, K, block_size):
             k_end = min(k_start + block_size, K)
             actual_block_size = k_end - k_start
 
-            R_block = self._gen_R_block(D, K, k_start, dtype, actual_block_size, seed)
+            R_block = self._gen_R_block(D, K, k_start, dtype, actual_block_size, rng)
             R_block_T = R_block.T
             del R_block
 
@@ -177,7 +182,7 @@ class RPCodec(Codec):
             reconstructed_blocks += rec_block
             del R_block_T, rec_block
 
-        return reconstructed_blocks
+        return reconstructed_blocks# if self.method == "dct" else reconstructed_blocks.reshape(projected.shape[0], D)
 
     def _gen_R(
         self, D: int, K: int, dtype: np.dtype, seed: int | None = None
@@ -226,7 +231,7 @@ class RPCodec(Codec):
         k_start: int,
         dtype: np.dtype,
         block_size: int,
-        seed: int | None = None,
+        rng: Generator,
     ) -> np.ndarray:
         """
         Generate a block of projection matrix R.
@@ -255,8 +260,6 @@ class RPCodec(Codec):
             R_block = alpha_m * np.cos((np.pi * (2 * i + 1) * m) / (2 * D))
 
         else:
-            philox = Philox(seed=seed, counter=k_start)
-            rng = Generator(philox)
             R_block = rng.normal(0, 1 / np.sqrt(K), size=(D, block_size)).astype(dtype)
 
         return R_block
