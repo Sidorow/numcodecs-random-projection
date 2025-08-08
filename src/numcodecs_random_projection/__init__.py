@@ -122,7 +122,6 @@ class RPCodec(Codec):
             actual_block_size = k_end - k_start
 
             R_block = self._gen_R_block(D, K, k_start, dtype, actual_block_size, rng)
-            print(f"R_block:\n{R_block}")
 
             block_proj = np.matmul(data, R_block)
             projected_blocks.append(block_proj)
