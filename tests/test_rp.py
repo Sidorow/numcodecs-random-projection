@@ -53,19 +53,38 @@ def test_roundtrip():
 def test_roundtrip_blocks():
     # Test with a small dataset using blocks
     data = np.copy(TEST_DATA)
-    codec = numcodecs.registry.get_codec(dict(id="rp", method="dct", k=20))
+    codec_dct = numcodecs.registry.get_codec(dict(id="rp", method="dct", k=20))
+    codec_gaussian = numcodecs.registry.get_codec(
+        dict(id="rp", method="gaussian", k=20)
+    )
 
     # Force block usage by calling the block methods directly
-    projected = codec._project_blocks(
+    projected_dct = codec_dct._project_blocks(
         data, data.shape[1], 20, data.dtype, block_size=10
     )
 
-    reconstructed = codec._reconstruct_blocks(
-        projected, data.shape[1], 20, data.dtype, block_size=10, seed=codec.seed
+    projected_gaussian = codec_gaussian._project_blocks(
+        data, data.shape[1], 20, data.dtype, block_size=10
     )
 
-    assert reconstructed.shape == data.shape
-    assert reconstructed.dtype == data.dtype
+    reconstructed_dct = codec_dct._reconstruct_blocks(
+        projected_dct, data.shape[1], 20, data.dtype, block_size=10, seed=codec_dct.seed
+    )
+
+    reconstructed_gaussian = codec_gaussian._reconstruct_blocks(
+        projected_gaussian,
+        data.shape[1],
+        20,
+        data.dtype,
+        block_size=10,
+        seed=codec_gaussian.seed,
+    )
+
+    assert reconstructed_dct.shape == data.shape
+    assert reconstructed_dct.dtype == data.dtype
+
+    assert reconstructed_gaussian.shape == data.shape
+    assert reconstructed_gaussian.dtype == data.dtype
 
 
 def test_seed():
@@ -186,32 +205,6 @@ def test_block_vs_full_matrix_dct():
     reconstructed_full = np.matmul(projected_blocks, full_R.T)
 
     np.testing.assert_allclose(reconstructed_blocks, reconstructed_full, atol=1e-15)
-    assert reconstructed_blocks.shape == (100, 50) and reconstructed_full.shape == (
-        100,
-        50,
-    )
-
-def test_block_vs_full_matrix_gaussian():
-    # Test that block and full matrix methods produce same results for Gaussian method
-    codec = numcodecs.registry.get_codec(dict(id="rp", method="gaussian", cr=5.0))
-
-    data = np.random.randn(100, 50).astype(np.float64)
-
-    projected_blocks = codec._project_blocks(data, 50, 10, data.dtype, block_size=5)
-
-    full_R = codec._gen_R(50, 10, data.dtype)
-    projected_full = np.matmul(data, full_R)
-
-    #np.testing.assert_allclose(projected_blocks, projected_full, atol=1e-15)
-    assert projected_blocks.shape == (100, 10) and projected_full.shape == (100, 10)
-
-    reconstructed_blocks = codec._reconstruct_blocks(
-        projected_blocks, 50, 10, data.dtype, block_size=5, seed=codec.seed
-    )
-
-    reconstructed_full = np.matmul(projected_blocks, full_R.T)
-
-    #np.testing.assert_allclose(reconstructed_blocks, reconstructed_full, atol=1e-15)
     assert reconstructed_blocks.shape == (100, 50) and reconstructed_full.shape == (
         100,
         50,
