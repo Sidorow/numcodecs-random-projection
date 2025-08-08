@@ -14,6 +14,7 @@ import numcodecs.registry
 import numpy as np
 import varint
 from numcodecs.abc import Codec
+from numpy.random import Generator, Philox
 from typing_extensions import Buffer  # MSPV 3.12
 
 
@@ -87,8 +88,10 @@ class RPCodec(Codec):
         self, data: np.ndarray, D: int, K: int, dtype: np.dtype, block_size: int
     ) -> np.ndarray:
         """
-        Project input data to a lower-dimensional subspace using block-wise matrix generation. Cuurently supports DCT method only.
+        Project input data to a lower-dimensional subspace using block-wise matrix generation.
         Processes projection matrix R in blocks of shape (D, block_size) instead of generating the full DxK matrix to reduce memory usage when K is large.
+
+        Note that due to how blocks are processed and projection matrix is generated, the output is not the same as if the full matrix was used (see _gen_R_block notes).
 
         Parameters
         ----------
@@ -112,21 +115,31 @@ class RPCodec(Codec):
             Projected data with shape (N, K)
         """
         projected_blocks = []
+        philox = Philox(seed=self.seed)
+        rng = Generator(philox)
         for k_start in range(0, K, block_size):
             k_end = min(k_start + block_size, K)
             actual_block_size = k_end - k_start
 
-            R_block = self._gen_R_block(D, k_start, dtype, actual_block_size)
+            R_block = self._gen_R_block(D, K, k_start, dtype, actual_block_size, rng)
+            print(f"R_block:\n{R_block}")
+
             block_proj = np.matmul(data, R_block)
             projected_blocks.append(block_proj)
 
             del R_block
-        projected = np.concatenate(projected_blocks, axis=1).astype(dtype)
 
+        projected = np.concatenate(projected_blocks, axis=1).astype(dtype)
         return projected
 
     def _reconstruct_blocks(
-        self, projected: np.ndarray, D: int, K: int, dtype: np.dtype, block_size: int
+        self,
+        projected: np.ndarray,
+        D: int,
+        K: int,
+        dtype: np.dtype,
+        block_size: int,
+        seed: int,
     ) -> np.ndarray:
         """
         Reconstruct data using block-wise matrix generation.
@@ -154,11 +167,13 @@ class RPCodec(Codec):
             Reconstructed data with shape (N, D)
         """
         reconstructed_blocks = np.zeros((projected.shape[0], D), dtype=dtype)
+        philox = Philox(seed=seed)
+        rng = Generator(philox)
         for k_start in range(0, K, block_size):
             k_end = min(k_start + block_size, K)
             actual_block_size = k_end - k_start
 
-            R_block = self._gen_R_block(D, k_start, dtype, actual_block_size)
+            R_block = self._gen_R_block(D, K, k_start, dtype, actual_block_size, rng)
             R_block_T = R_block.T
             del R_block
 
@@ -200,22 +215,27 @@ class RPCodec(Codec):
         if self.method == "dct":
             i = np.arange(D, dtype=dtype).reshape(-1, 1)
             m = np.arange(K, dtype=dtype).reshape(1, -1)
-
             alpha_m = np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
-
             R = alpha_m * np.cos((np.pi * (2 * i + 1) * m) / (2 * D))
 
         else:
-            rng = np.random.default_rng(seed)
+            philox = Philox(seed=seed)
+            rng = Generator(philox)
             R = rng.normal(0, 1 / np.sqrt(K), size=(D, K))
 
         return R.astype(dtype)
 
     def _gen_R_block(
-        self, D: int, k_start: int, dtype: np.dtype, block_size: int
+        self,
+        D: int,
+        K: int,
+        k_start: int,
+        dtype: np.dtype,
+        block_size: int,
+        rng: Generator,
     ) -> np.ndarray:
         """
-        Generate a block of projection matrix R.
+        Generate a block of projection matrix R using a specified method.
 
         Parameters
         ----------
@@ -233,13 +253,21 @@ class RPCodec(Codec):
         -------
         np.ndarray
             Block of matrix R with shape (D, block_size)
+
+        Notes
+        -----
+        - Generating Gaussian R matrix block by block produces the same numbers as if the full matrix was generated
+            but due to the shape, the slices are not exact. If the full block generated R is concatenated by axis=0 and reshaped to (D, K),
+            it would be identical to the fully generated R matrix.
         """
-        i = np.arange(D, dtype=dtype).reshape(-1, 1)
-        m = np.arange(k_start, k_start + block_size, dtype=dtype).reshape(1, -1)
+        if self.method == "dct":
+            i = np.arange(D, dtype=dtype).reshape(-1, 1)
+            m = np.arange(k_start, k_start + block_size, dtype=dtype).reshape(1, -1)
+            alpha_m = np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
+            R_block = alpha_m * np.cos((np.pi * (2 * i + 1) * m) / (2 * D))
 
-        alpha_m = np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
-
-        R_block = alpha_m * np.cos((np.pi * (2 * i + 1) * m) / (2 * D))
+        else:
+            R_block = rng.normal(0, 1 / np.sqrt(K), size=(D, block_size)).astype(dtype)
 
         return R_block
 
@@ -283,7 +311,7 @@ class RPCodec(Codec):
 
         np.nan_to_num(data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
-        if self.k > 1000 and self.method == "dct":
+        if self.k > 1000:
             block_size = 500  # Arbitrary for now. Maybe calculate optimal later?
             projected = self._project_blocks(
                 data, data.shape[1], self.k, original_dtype, block_size
@@ -371,10 +399,10 @@ class RPCodec(Codec):
         if byteorder == "big":
             projected = projected.byteswap()
 
-        if k > 1000 and self.method == "dct":
+        if k > 1000:
             block_size = 500
             reconstructed = self._reconstruct_blocks(
-                projected, original_shape[1], k, original_dtype, block_size
+                projected, original_shape[1], k, original_dtype, block_size, seed
             )
         else:
             R = self._gen_R(original_shape[1], k, original_dtype, seed)
