@@ -91,6 +91,8 @@ class RPCodec(Codec):
         Project input data to a lower-dimensional subspace using block-wise matrix generation.
         Processes projection matrix R in blocks of shape (D, block_size) instead of generating the full DxK matrix to reduce memory usage when K is large.
 
+        Note that due to how blocks are processed and projection matrix is generated, the output is not the same as if the full matrix was used (see _gen_R_block notes).
+
         Parameters
         ----------
         data : np.ndarray
@@ -119,10 +121,9 @@ class RPCodec(Codec):
             k_end = min(k_start + block_size, K)
             actual_block_size = k_end - k_start
 
-            R_block = self._gen_R_block(
-                D, K, k_start, dtype, actual_block_size, rng
-            )
-            
+            R_block = self._gen_R_block(D, K, k_start, dtype, actual_block_size, rng)
+            print(f"R_block:\n{R_block}")
+
             block_proj = np.matmul(data, R_block)
             projected_blocks.append(block_proj)
 
@@ -182,7 +183,7 @@ class RPCodec(Codec):
             reconstructed_blocks += rec_block
             del R_block_T, rec_block
 
-        return reconstructed_blocks# if self.method == "dct" else reconstructed_blocks.reshape(projected.shape[0], D)
+        return reconstructed_blocks
 
     def _gen_R(
         self, D: int, K: int, dtype: np.dtype, seed: int | None = None
@@ -234,7 +235,7 @@ class RPCodec(Codec):
         rng: Generator,
     ) -> np.ndarray:
         """
-        Generate a block of projection matrix R.
+        Generate a block of projection matrix R using a specified method.
 
         Parameters
         ----------
@@ -252,6 +253,12 @@ class RPCodec(Codec):
         -------
         np.ndarray
             Block of matrix R with shape (D, block_size)
+
+        Notes
+        -----
+        - Generating Gaussian R matrix block by block produces the same numbers as if the full matrix was generated
+            but due to the shape, the slices are not exact. If the full block generated R is concatenated by axis=0 and reshaped to (D, K),
+            it would be identical to the fully generated R matrix.
         """
         if self.method == "dct":
             i = np.arange(D, dtype=dtype).reshape(-1, 1)
