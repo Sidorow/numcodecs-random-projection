@@ -84,6 +84,14 @@ class RPCodec(Codec):
 
     codec_id: str = "rp"  # type: ignore
 
+    def estimate_k(
+        self,
+        data: np.ndarray,
+        target_mse: float,
+        percentile: float = 95.0,
+    ) -> dict:
+        pass
+
     def _project_blocks(
         self, data: np.ndarray, D: int, K: int, dtype: np.dtype, block_size: int
     ) -> np.ndarray:
