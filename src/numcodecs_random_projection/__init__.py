@@ -121,24 +121,12 @@ class RPCodec(Codec):
 
         if self.method == "gaussian":
             ratio = max(0.01, 1 - target)
-            estimated_k = int(D * ratio)
 
         elif self.method == "dct":
-            if target <= 0.001:
-                ratio = 0.9
-            elif target <= 0.01:
-                ratio = 0.7
-            elif target <= 0.1:
-                ratio = 0.5
-            elif target <= 0.5:
-                ratio = 0.3
-            else:
-                ratio = 0.1
+            ratio = max(0.05, 1 - np.sqrt(target))
 
-            estimated_k = int(D * ratio)
-
-        estimated_k = max(1, min(estimated_k, D))
-        return estimated_k
+        estimated_k = int(D * ratio)
+        return max(1, min(estimated_k, D))
 
     def _project_blocks(
         self, data: np.ndarray, D: int, K: int, dtype: np.dtype, block_size: int
