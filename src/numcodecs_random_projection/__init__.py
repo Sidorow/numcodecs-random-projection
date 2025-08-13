@@ -86,37 +86,38 @@ class RPCodec(Codec):
 
     def estimate_k(
         self,
-        data: np.ndarray = None,
-        target: float = None,
+        data: np.ndarray,
+        target: float,
     ) -> int:
         """
-        Unified k estimation supporting both MAE and MSE targets.
+        Estimate the number of dimensions k for the projected space based on the input data and target.
 
         Parameters
         ----------
-        data : np.ndarray, optional
-            Input data. If provided, d is ignored.
-        d : int, optional
-            Data dimension. Used if data is not provided.
-        target_mae : float, optional
+        data : np.ndarray
+            Input data.
+        target : float
             Target MAE for normalized data (mean=0, std=1)
-        target_mse : float, optional
-            Target MSE for normalized data (mean=0, std=1)
 
         Returns
         -------
         int
             Estimated k
+
+        Notes
+        -----
+        The estimation is based on the assumption that the input data is normalized
+        (mean=0, std=1). Use normalized data to do some calculations to improve accuracy?
         """
 
         D = data.shape[1]
 
-        #data_mean = np.mean(data, axis=0)
-        #data_std = np.std(data, axis=0)
+        # data_mean = np.mean(data, axis=0)
+        # data_std = np.std(data, axis=0)
 
-        #data_std = np.where(data_std == 0, 1, data_std)
+        # data_std = np.where(data_std == 0, 1, data_std)
 
-        #normalized_data = (data - data_mean) / data_std
+        # normalized_data = (data - data_mean) / data_std
 
         if self.method == "gaussian":
             ratio = max(0.01, 1 - target)
