@@ -86,11 +86,58 @@ class RPCodec(Codec):
 
     def estimate_k(
         self,
-        data: np.ndarray,
-        target_mse: float,
-        percentile: float = 95.0,
-    ) -> dict:
-        pass
+        data: np.ndarray = None,
+        target: float = None,
+    ) -> tuple[int, np.ndarray]:
+        """
+        Unified k estimation supporting both MAE and MSE targets.
+
+        Parameters
+        ----------
+        data : np.ndarray, optional
+            Input data. If provided, d is ignored.
+        d : int, optional
+            Data dimension. Used if data is not provided.
+        target_mae : float, optional
+            Target MAE for normalized data (mean=0, std=1)
+        target_mse : float, optional
+            Target MSE for normalized data (mean=0, std=1)
+
+        Returns
+        -------
+        int
+            Estimated k
+        """
+
+        D = data.shape[1]
+
+        data_mean = np.mean(data, axis=0)
+        data_std = np.std(data, axis=0)
+
+        data_std = np.where(data_std == 0, 1, data_std)
+
+        normalized_data = (data - data_mean) / data_std
+
+        if self.method == "gaussian":
+            ratio = max(0.01, 1 - target)
+            estimated_k = int(D * ratio)
+
+        elif self.method == "dct":
+            if target <= 0.001:
+                ratio = 0.9
+            elif target <= 0.01:
+                ratio = 0.7
+            elif target <= 0.1:
+                ratio = 0.5
+            elif target <= 0.5:
+                ratio = 0.3
+            else:
+                ratio = 0.1
+
+            estimated_k = int(D * ratio)
+
+        estimated_k = max(1, min(estimated_k, D))
+        return estimated_k, normalized_data
 
     def _project_blocks(
         self, data: np.ndarray, D: int, K: int, dtype: np.dtype, block_size: int
