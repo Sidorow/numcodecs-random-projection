@@ -88,7 +88,7 @@ class RPCodec(Codec):
         self,
         data: np.ndarray = None,
         target: float = None,
-    ) -> tuple[int, np.ndarray]:
+    ) -> int:
         """
         Unified k estimation supporting both MAE and MSE targets.
 
@@ -111,12 +111,12 @@ class RPCodec(Codec):
 
         D = data.shape[1]
 
-        data_mean = np.mean(data, axis=0)
-        data_std = np.std(data, axis=0)
+        #data_mean = np.mean(data, axis=0)
+        #data_std = np.std(data, axis=0)
 
-        data_std = np.where(data_std == 0, 1, data_std)
+        #data_std = np.where(data_std == 0, 1, data_std)
 
-        normalized_data = (data - data_mean) / data_std
+        #normalized_data = (data - data_mean) / data_std
 
         if self.method == "gaussian":
             ratio = max(0.01, 1 - target)
@@ -137,7 +137,7 @@ class RPCodec(Codec):
             estimated_k = int(D * ratio)
 
         estimated_k = max(1, min(estimated_k, D))
-        return estimated_k, normalized_data
+        return estimated_k
 
     def _project_blocks(
         self, data: np.ndarray, D: int, K: int, dtype: np.dtype, block_size: int
