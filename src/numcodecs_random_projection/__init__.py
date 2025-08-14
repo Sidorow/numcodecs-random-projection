@@ -112,18 +112,11 @@ class RPCodec(Codec):
 
         D = data.shape[1]
 
-        # data_mean = np.mean(data, axis=0)
-        # data_std = np.std(data, axis=0)
-
-        # data_std = np.where(data_std == 0, 1, data_std)
-
-        # normalized_data = (data - data_mean) / data_std
-
         if self.method == "gaussian":
-            ratio = max(0.01, 1 - target)
+            ratio = 1 - target
 
         elif self.method == "dct":
-            ratio = max(0.05, 1 - np.sqrt(target))
+            ratio = 1 - np.sqrt(target)
 
         estimated_k = int(D * ratio)
         return max(1, min(estimated_k, D))
