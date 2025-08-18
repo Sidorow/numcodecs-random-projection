@@ -84,6 +84,48 @@ class RPCodec(Codec):
 
     codec_id: str = "rp"  # type: ignore
 
+    def estimate_k(
+        self,
+        data: np.ndarray,
+        target: float,
+    ) -> int:
+        """
+        Estimate the number of dimensions k for the projected space based on the input data and target.
+
+        Parameters
+        ----------
+        data : np.ndarray
+            Input data.
+        target : float
+            Target MAE for normalized data (mean=0, std=1)
+
+        Returns
+        -------
+        int
+            Estimated k
+
+        Notes
+        -----
+        The estimation is based on the assumption that the input data is normalized
+        (mean=0, std=1). Use normalized data to do some calculations to improve accuracy?
+        """
+
+        D = data.shape[1]
+        data_var = np.var(data)
+
+        normalized_target = target / data_var if data_var > 0 else target
+
+        if self.method == "gaussian":
+            ratio = 1 - normalized_target
+
+        elif self.method == "dct":
+            ratio = 1 - np.sqrt(normalized_target * 8)
+
+        estimated_k = int(D * ratio)
+        K = max(1, min(estimated_k, D))
+
+        return K
+
     def _project_blocks(
         self, data: np.ndarray, D: int, K: int, dtype: np.dtype, block_size: int
     ) -> np.ndarray:
