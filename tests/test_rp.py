@@ -18,13 +18,13 @@ def test_from_config():
     print(codec.__class__.__name__)
     assert codec.__class__.__name__ == "RPCodec"
     assert codec.__class__.__module__ == "numcodecs_random_projection"
-    assert codec.cr == 10.0
+    assert codec._cr == 10.0
 
     codec2 = numcodecs.registry.get_codec(dict(id="rp", k=20))
     print(codec2.__class__.__name__)
     assert codec2.__class__.__name__ == "RPCodec"
     assert codec2.__class__.__module__ == "numcodecs_random_projection"
-    assert codec2.k == 20
+    assert codec2._k == 20
 
 
 def check_roundtrip(data: np.ndarray):
@@ -68,7 +68,12 @@ def test_roundtrip_blocks():
     )
 
     reconstructed_dct = codec_dct._reconstruct_blocks(
-        projected_dct, data.shape[1], 20, data.dtype, block_size=10, seed=codec_dct.seed
+        projected_dct,
+        data.shape[1],
+        20,
+        data.dtype,
+        block_size=10,
+        seed=codec_dct._seed,
     )
 
     reconstructed_gaussian = codec_gaussian._reconstruct_blocks(
@@ -77,7 +82,7 @@ def test_roundtrip_blocks():
         20,
         data.dtype,
         block_size=10,
-        seed=codec_gaussian.seed,
+        seed=codec_gaussian._seed,
     )
 
     assert reconstructed_dct.shape == data.shape
@@ -139,15 +144,15 @@ def test_seed_blocks():
     assert not np.array_equal(projected_blocks1, projected_blocks3)
 
     reconstructed_blocks1 = codec1._reconstruct_blocks(
-        projected_blocks1, 50, 10, data.dtype, block_size=5, seed=codec1.seed
+        projected_blocks1, 50, 10, data.dtype, block_size=5, seed=codec1._seed
     )
 
     reconstructed_blocks2 = codec2._reconstruct_blocks(
-        projected_blocks2, 50, 10, data.dtype, block_size=5, seed=codec2.seed
+        projected_blocks2, 50, 10, data.dtype, block_size=5, seed=codec2._seed
     )
 
     reconstructed_blocks3 = codec3._reconstruct_blocks(
-        projected_blocks3, 50, 10, data.dtype, block_size=5, seed=codec3.seed
+        projected_blocks3, 50, 10, data.dtype, block_size=5, seed=codec3._seed
     )
 
     assert np.array_equal(reconstructed_blocks1, reconstructed_blocks2)
@@ -199,7 +204,7 @@ def test_block_vs_full_matrix_dct():
     assert projected_blocks.shape == (100, 10) and projected_full.shape == (100, 10)
 
     reconstructed_blocks = codec._reconstruct_blocks(
-        projected_blocks, 50, 10, data.dtype, block_size=5, seed=codec.seed
+        projected_blocks, 50, 10, data.dtype, block_size=5, seed=codec._seed
     )
 
     reconstructed_full = np.matmul(projected_blocks, full_R.T)
@@ -237,7 +242,10 @@ def test_invalid_data():
 
 def test_robustness():
     codec2 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5))
-    codec3 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5, k=20))
+
+    with pytest.warns(UserWarning, match="Both"):
+        codec3 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5, k=20))
+
     codec4 = numcodecs.registry.get_codec(dict(id="rp", cr=10))
     codec5 = numcodecs.registry.get_codec(dict(id="rp", cr=10))
 
@@ -252,11 +260,11 @@ def test_robustness():
 
     # Should correctly calculate k from cr (180 / 9.5 = 18.9 -> 19)
     codec2.encode(data)
-    assert codec2.k == 19
+    assert codec2._k == 19
 
     # Should use k over cr when both are specified
     codec3.encode(data)
-    assert codec3.k == 20
+    assert codec3._k == 20
 
     # Should handle NaN and Inf values correctly
     # NaN and inf values should be replaced with 0.0

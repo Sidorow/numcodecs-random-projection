@@ -2,9 +2,10 @@
 [`RPCodec`][numcodecs_random_projection.RPCodec] for the [`numcodecs`][numcodecs] buffer compression API.
 """
 
-__all__ = ["RPCodec"]
+__all__ = ["RPCodec", "RPMethod"]
 
 import warnings
+from enum import Enum
 from io import BytesIO
 from math import ceil
 from sys import byteorder
@@ -15,7 +16,15 @@ import numpy as np
 import varint
 from numcodecs.abc import Codec
 from numpy.random import Generator, Philox
-from typing_extensions import Buffer  # MSPV 3.12
+from typing_extensions import (
+    Buffer,  # MSPV 3.12
+    assert_never,  # MSPV 3.11
+)
+
+
+class RPMethod(Enum):
+    dct = "dct"
+    gaussian = "gaussian"
 
 
 class RPCodec(Codec):
@@ -27,11 +36,19 @@ class RPCodec(Codec):
 
     """
 
+    __slots__ = ("_cr", "_k", "_method", "_seed")
+    _cr: None | float
+    _k: None | int
+    _method: RPMethod
+    _seed: int
+
+    codec_id: str = "rp"  # type: ignore
+
     def __init__(
         self,
         cr: None | float = None,
         k: None | int = None,
-        method: str = "dct",
+        method: str | RPMethod = RPMethod.dct,
         seed: int | None = None,
     ) -> None:
         """
@@ -39,17 +56,17 @@ class RPCodec(Codec):
 
         Parameters
         ----------
-        cr : float, optional
+        cr : float
             Target compression ratio. If specified, k will be calculated as D/cr
             where D is the number of features in the input data.
-        k : int, optional
+        k : int
             Number of dimensions in the projected space. Will be used over cr if
             both are specified.
-        method : str, default "dct"
-            Method for generating the projection matrix. Supported methods:
-            - "dct": Uses Discrete Cosine Transform basis.
-            - "gaussian": Uses Gaussian random projection.
-        seed : int, optional
+        method : str | RPMethod
+            Method for generating the projection matrix. Please refer to the
+            [`RPMethod`][numcodecs_random_projection.RPMethod] enumeration for
+            all supported methods.
+        seed : int
             Random seed for reproducible results. If None, results will be
             non-deterministic when using the Gaussian method.
 
@@ -58,36 +75,37 @@ class RPCodec(Codec):
         ValueError
             If neither cr nor k is specified during encoding.
         """
-        self.cr = cr
-        self.k = k
-        self.method = method
+        self._cr = cr
+        self._k = k
 
-        if self.method not in ["dct", "gaussian"]:
+        try:
+            self._method = method if isinstance(method, RPMethod) else RPMethod[method]
+        except KeyError:
+            hy = "'"
             raise ValueError(
-                f"Unknown method '{self.method}'. Supported methods: 'dct', 'gaussian'."
+                f"Unknown method '{method}'. Supported methods: {', '.join(f'{hy}{m.name}{hy}' for m in RPMethod)}."
             )
 
         if seed is None:
-            self.seed = np.random.randint(0, 2**31 - 1)
+            self._seed = np.random.randint(0, 2**31 - 1)
         else:
-            self.seed = seed
+            self._seed = seed
 
-        if self.k and self.cr:
+        if (self._k is not None) and (self._cr is not None):
             warnings.warn(
-                f"Both 'cr' ({self.cr}) and 'k' ({self.k}) specified.\n Using 'k' = {self.k}",
+                f"Both 'cr' ({self._cr}) and 'k' ({self._k}) specified.\n Using 'k' = {self._k}",
                 UserWarning,
                 stacklevel=2,
             )
 
-        elif self.k is None and self.cr is None:
+        elif (self._k is None) and (self._cr is None):
             raise ValueError("Parameter 'cr' or 'k' must be specified for RPCodec.")
 
-    codec_id: str = "rp"  # type: ignore
-
+    @staticmethod
     def estimate_k(
-        self,
         data: np.ndarray,
-        target: float,
+        method: RPMethod,
+        target_mae: float,
     ) -> int:
         """
         Estimate the number of dimensions k for the projected space based on the input data and target.
@@ -96,7 +114,11 @@ class RPCodec(Codec):
         ----------
         data : np.ndarray
             Input data.
-        target : float
+        method : RPMethod
+            Method for generating the projection matrix. Please refer to the
+            [`RPMethod`][numcodecs_random_projection.RPMethod] enumeration for
+            all supported methods.
+        target_mae : float
             Target MAE for normalized data (mean=0, std=1)
 
         Returns
@@ -113,13 +135,15 @@ class RPCodec(Codec):
         D = data.shape[1]
         data_var = np.var(data)
 
-        normalized_target = target / data_var if data_var > 0 else target
+        normalized_target = target_mae / data_var if data_var > 0 else target_mae
 
-        if self.method == "gaussian":
-            ratio = 1 - normalized_target
-
-        elif self.method == "dct":
-            ratio = 1 - np.sqrt(normalized_target * 8)
+        match method:
+            case RPMethod.gaussian:
+                ratio = 1 - normalized_target
+            case RPMethod.dct:
+                ratio = 1 - np.sqrt(normalized_target * 8)
+            case _:
+                assert_never(method)
 
         estimated_k = int(D * ratio)
         K = max(1, min(estimated_k, D))
@@ -157,7 +181,7 @@ class RPCodec(Codec):
             Projected data with shape (N, K)
         """
         projected_blocks = []
-        philox = Philox(seed=self.seed)
+        philox = Philox(seed=self._seed)
         rng = Generator(philox)
         for k_start in range(0, K, block_size):
             k_end = min(k_start + block_size, K)
@@ -253,16 +277,19 @@ class RPCodec(Codec):
         np.ndarray
             Projection matrix of shape (D, K)
         """
-        if self.method == "dct":
-            i = np.arange(D, dtype=dtype).reshape(-1, 1)
-            m = np.arange(K, dtype=dtype).reshape(1, -1)
-            alpha_m = np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
-            R = alpha_m * np.cos((np.pi * (2 * i + 1) * m) / (2 * D))
 
-        else:
-            philox = Philox(seed=seed)
-            rng = Generator(philox)
-            R = rng.normal(0, 1 / np.sqrt(K), size=(D, K))
+        match self._method:
+            case RPMethod.dct:
+                i = np.arange(D, dtype=dtype).reshape(-1, 1)
+                m = np.arange(K, dtype=dtype).reshape(1, -1)
+                alpha_m = np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
+                R = alpha_m * np.cos((np.pi * (2 * i + 1) * m) / (2 * D))
+            case RPMethod.gaussian:
+                philox = Philox(seed=seed)
+                rng = Generator(philox)
+                R = rng.normal(0, 1 / np.sqrt(K), size=(D, K))
+            case _:
+                assert_never(self._method)
 
         return R.astype(dtype)
 
@@ -301,14 +328,19 @@ class RPCodec(Codec):
             but due to the shape, the slices are not exact. If the full block generated R is concatenated by axis=0 and reshaped to (D, K),
             it would be identical to the fully generated R matrix.
         """
-        if self.method == "dct":
-            i = np.arange(D, dtype=dtype).reshape(-1, 1)
-            m = np.arange(k_start, k_start + block_size, dtype=dtype).reshape(1, -1)
-            alpha_m = np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
-            R_block = alpha_m * np.cos((np.pi * (2 * i + 1) * m) / (2 * D))
 
-        else:
-            R_block = rng.normal(0, 1 / np.sqrt(K), size=(D, block_size)).astype(dtype)
+        match self._method:
+            case RPMethod.dct:
+                i = np.arange(D, dtype=dtype).reshape(-1, 1)
+                m = np.arange(k_start, k_start + block_size, dtype=dtype).reshape(1, -1)
+                alpha_m = np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
+                R_block = alpha_m * np.cos((np.pi * (2 * i + 1) * m) / (2 * D))
+            case RPMethod.gaussian:
+                R_block = rng.normal(0, 1 / np.sqrt(K), size=(D, block_size)).astype(
+                    dtype
+                )
+            case _:
+                assert_never(self._method)
 
         return R_block
 
@@ -344,21 +376,21 @@ class RPCodec(Codec):
         original_shape = data.shape
         original_dtype = data.dtype
 
-        if self.k is None:
-            if self.cr is not None:
-                self.k = ceil(data.shape[1] / self.cr)
+        if self._k is None:
+            if self._cr is not None:
+                self._k = ceil(data.shape[1] / self._cr)
 
-        assert self.k is not None
+        assert self._k is not None
 
         np.nan_to_num(data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
-        if self.k > 1000:
+        if self._k > 1000:
             block_size = 500  # Arbitrary for now. Maybe calculate optimal later?
             projected = self._project_blocks(
-                data, data.shape[1], self.k, original_dtype, block_size
+                data, data.shape[1], self._k, original_dtype, block_size
             )
         else:
-            R = self._gen_R(data.shape[1], self.k, original_dtype, self.seed)
+            R = self._gen_R(data.shape[1], self._k, original_dtype, self._seed)
             projected = np.matmul(data, R)
 
         bio = BytesIO()
@@ -371,8 +403,8 @@ class RPCodec(Codec):
         bio.write(varint.encode(len(dtype_str)))
         bio.write(dtype_str)
 
-        bio.write(varint.encode(self.k))
-        bio.write(varint.encode(self.seed))
+        bio.write(varint.encode(self._k))
+        bio.write(varint.encode(self._seed))
 
         projected_byteorder = projected.dtype.byteorder
 
@@ -453,7 +485,9 @@ class RPCodec(Codec):
         return numcodecs.compat.ndarray_copy(reconstructed, out)  # type: ignore
 
     def get_config(self) -> dict:
-        return dict(id="rp", cr=self.cr, k=self.k, seed=self.seed)
+        return dict(
+            id="rp", cr=self._cr, k=self._k, method=self._method.name, seed=self._seed
+        )
 
 
 numcodecs.registry.register_codec(RPCodec)
