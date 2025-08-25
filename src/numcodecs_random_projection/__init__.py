@@ -93,7 +93,7 @@ class RPCodec(Codec):
         except KeyError:
             hy = "'"
             raise ValueError(
-                f"Unknown method '{method}'. Supported methods: {', '.join(f'{hy}{m.name}{hy}' for m in RPMethod)}."
+                f"unknown method '{method}', expected one of {', '.join(f'{hy}{m.name}{hy}' for m in RPMethod)}."
             )
 
         if seed is None:
@@ -101,7 +101,7 @@ class RPCodec(Codec):
         else:
             self._seed = seed
 
-    def _estimate_k(
+    def _estimate_k_for_target_mae(
         self,
         data: np.ndarray,
     ) -> int:
@@ -365,13 +365,15 @@ class RPCodec(Codec):
         original_shape = data.shape
         original_dtype = data.dtype
 
+        k: int
         if self._mae is not None:
-            k = self._estimate_k(data)
+            k = self._estimate_k_for_target_mae(data)
         elif self._cr is not None:
-            k = ceil(data.shape[1] / self._cr)
+            assert self._cr is not None
+            k = int(ceil(data.shape[1] / self._cr))
         else:
+            assert self._k is not None
             k = self._k
-        assert k is not None
 
         np.nan_to_num(data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -476,7 +478,7 @@ class RPCodec(Codec):
         return numcodecs.compat.ndarray_copy(reconstructed, out)  # type: ignore
 
     def get_config(self) -> dict:
-        config = dict(id=type(self).codec_id)
+        config: dict[str, str | int | float] = dict(id=type(self).codec_id)
 
         if self._mae is not None:
             config["mae"] = self._mae

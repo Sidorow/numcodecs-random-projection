@@ -238,8 +238,8 @@ def test_invalid_codec():
     ):
         numcodecs.registry.get_codec(dict(id="rp", cr=10, k=1))
 
-    with pytest.raises(ValueError, match=r"Unknown method"):
-        numcodecs.registry.get_codec(dict(id="rp", method="invalid_method"))
+    with pytest.raises(ValueError, match=r"unknown method"):
+        numcodecs.registry.get_codec(dict(id="rp", k=1, method="invalid_method"))
 
 
 def test_invalid_data():
