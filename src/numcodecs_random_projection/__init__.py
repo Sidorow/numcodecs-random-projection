@@ -4,7 +4,6 @@
 
 __all__ = ["RPCodec", "RPMethod"]
 
-import warnings
 from enum import Enum
 from io import BytesIO
 from math import ceil
@@ -36,7 +35,8 @@ class RPCodec(Codec):
 
     """
 
-    __slots__ = ("_cr", "_k", "_method", "_seed")
+    __slots__ = ("_mae", "_cr", "_k", "_method", "_seed")
+    _mae: None | float
     _cr: None | float
     _k: None | int
     _method: RPMethod
@@ -46,6 +46,7 @@ class RPCodec(Codec):
 
     def __init__(
         self,
+        mae: None | float = None,
         cr: None | float = None,
         k: None | int = None,
         method: str | RPMethod = RPMethod.dct,
@@ -56,6 +57,10 @@ class RPCodec(Codec):
 
         Parameters
         ----------
+        mae : float
+            Target mean absolute error. If specified, k will be estimated from
+            data during encoding. Note that the bound is *not* guatanteed to be
+            met.
         cr : float
             Target compression ratio. If specified, k will be calculated as D/cr
             where D is the number of features in the input data.
@@ -73,8 +78,13 @@ class RPCodec(Codec):
         Raises
         ------
         ValueError
-            If neither cr nor k is specified during encoding.
+            If not exactly one of `mae`, `cr`, or `k` is set.
         """
+
+        if sum([(mae is not None), (cr is not None), (k is not None)]) != 1:
+            raise ValueError("exactly one of `mae`, `cr` or `k` must be set")
+
+        self._mae = mae
         self._cr = cr
         self._k = k
 
@@ -83,7 +93,7 @@ class RPCodec(Codec):
         except KeyError:
             hy = "'"
             raise ValueError(
-                f"Unknown method '{method}'. Supported methods: {', '.join(f'{hy}{m.name}{hy}' for m in RPMethod)}."
+                f"unknown method '{method}', expected one of {', '.join(f'{hy}{m.name}{hy}' for m in RPMethod)}."
             )
 
         if seed is None:
@@ -91,59 +101,38 @@ class RPCodec(Codec):
         else:
             self._seed = seed
 
-        if (self._k is not None) and (self._cr is not None):
-            warnings.warn(
-                f"Both 'cr' ({self._cr}) and 'k' ({self._k}) specified.\n Using 'k' = {self._k}",
-                UserWarning,
-                stacklevel=2,
-            )
-
-        elif (self._k is None) and (self._cr is None):
-            raise ValueError("Parameter 'cr' or 'k' must be specified for RPCodec.")
-
-    @staticmethod
-    def estimate_k(
+    def _estimate_k_for_target_mae(
+        self,
         data: np.ndarray,
-        method: RPMethod,
-        target_mae: float,
     ) -> int:
         """
-        Estimate the number of dimensions k for the projected space based on the input data and target.
+        Estimate the number of dimensions k for the projected space based on the
+        input data and targeted MAE.
 
         Parameters
         ----------
         data : np.ndarray
             Input data.
-        method : RPMethod
-            Method for generating the projection matrix. Please refer to the
-            [`RPMethod`][numcodecs_random_projection.RPMethod] enumeration for
-            all supported methods.
-        target_mae : float
-            Target MAE for normalized data (mean=0, std=1)
 
         Returns
         -------
         int
             Estimated k
-
-        Notes
-        -----
-        The estimation is based on the assumption that the input data is normalized
-        (mean=0, std=1). Use normalized data to do some calculations to improve accuracy?
         """
 
         D = data.shape[1]
-        data_var = np.var(data)
+        data_std = np.std(data)
 
-        normalized_target = target_mae / data_var if data_var > 0 else target_mae
+        assert self._mae is not None
+        normalized_mae = self._mae / data_std if data_std > 0 else self._mae
 
-        match method:
+        match self._method:
             case RPMethod.gaussian:
-                ratio = 1 - normalized_target
+                ratio = 1 - normalized_mae
             case RPMethod.dct:
-                ratio = 1 - np.sqrt(normalized_target * 8)
+                ratio = 1 - np.sqrt(normalized_mae * 8)
             case _:
-                assert_never(method)
+                assert_never(self._method)
 
         estimated_k = int(D * ratio)
         K = max(1, min(estimated_k, D))
@@ -376,21 +365,25 @@ class RPCodec(Codec):
         original_shape = data.shape
         original_dtype = data.dtype
 
-        if self._k is None:
-            if self._cr is not None:
-                self._k = ceil(data.shape[1] / self._cr)
-
-        assert self._k is not None
+        k: int
+        if self._mae is not None:
+            k = self._estimate_k_for_target_mae(data)
+        elif self._cr is not None:
+            assert self._cr is not None
+            k = int(ceil(data.shape[1] / self._cr))
+        else:
+            assert self._k is not None
+            k = self._k
 
         np.nan_to_num(data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
-        if self._k > 1000:
+        if k > 1000:
             block_size = 500  # Arbitrary for now. Maybe calculate optimal later?
             projected = self._project_blocks(
-                data, data.shape[1], self._k, original_dtype, block_size
+                data, data.shape[1], k, original_dtype, block_size
             )
         else:
-            R = self._gen_R(data.shape[1], self._k, original_dtype, self._seed)
+            R = self._gen_R(data.shape[1], k, original_dtype, self._seed)
             projected = np.matmul(data, R)
 
         bio = BytesIO()
@@ -403,7 +396,7 @@ class RPCodec(Codec):
         bio.write(varint.encode(len(dtype_str)))
         bio.write(dtype_str)
 
-        bio.write(varint.encode(self._k))
+        bio.write(varint.encode(k))
         bio.write(varint.encode(self._seed))
 
         projected_byteorder = projected.dtype.byteorder
@@ -485,9 +478,19 @@ class RPCodec(Codec):
         return numcodecs.compat.ndarray_copy(reconstructed, out)  # type: ignore
 
     def get_config(self) -> dict:
-        return dict(
-            id="rp", cr=self._cr, k=self._k, method=self._method.name, seed=self._seed
-        )
+        config: dict[str, str | int | float] = dict(id=type(self).codec_id)
+
+        if self._mae is not None:
+            config["mae"] = self._mae
+        if self._cr is not None:
+            config["cr"] = self._cr
+        if self._k is not None:
+            config["k"] = self._k
+
+        config["method"] = self._method.name
+        config["seed"] = self._seed
+
+        return config
 
 
 numcodecs.registry.register_codec(RPCodec)
