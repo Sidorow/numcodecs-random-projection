@@ -219,9 +219,24 @@ def test_block_vs_full_matrix_dct():
 def test_invalid_codec():
     # Test that missing or invalid parameters raises error
     with pytest.raises(
-        ValueError, match="Parameter 'cr' or 'k' must be specified for RPCodec."
+        ValueError, match="exactly one of `mae`, `cr` or `k` must be set"
     ):
         numcodecs.registry.get_codec(dict(id="rp"))
+
+    with pytest.raises(
+        ValueError, match="exactly one of `mae`, `cr` or `k` must be set"
+    ):
+        numcodecs.registry.get_codec(dict(id="rp", mae=0.1, cr=10))
+
+    with pytest.raises(
+        ValueError, match="exactly one of `mae`, `cr` or `k` must be set"
+    ):
+        numcodecs.registry.get_codec(dict(id="rp", mae=0.1, k=1))
+
+    with pytest.raises(
+        ValueError, match="exactly one of `mae`, `cr` or `k` must be set"
+    ):
+        numcodecs.registry.get_codec(dict(id="rp", cr=10, k=1))
 
     with pytest.raises(ValueError, match=r"Unknown method"):
         numcodecs.registry.get_codec(dict(id="rp", method="invalid_method"))
@@ -241,13 +256,8 @@ def test_invalid_data():
 
 
 def test_robustness():
-    codec2 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5))
-
-    with pytest.warns(UserWarning, match="Both"):
-        codec3 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5, k=20))
-
-    codec4 = numcodecs.registry.get_codec(dict(id="rp", cr=10))
-    codec5 = numcodecs.registry.get_codec(dict(id="rp", cr=10))
+    codec1 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5))
+    codec2 = numcodecs.registry.get_codec(dict(id="rp", cr=10))
 
     data = np.copy(TEST_DATA)
 
@@ -259,21 +269,11 @@ def test_robustness():
     inf_data.fill(np.inf)
 
     # Should correctly calculate k from cr (180 / 9.5 = 18.9 -> 19)
-    codec2.encode(data)
-    assert codec2._k == 19
-
-    # Should use k over cr when both are specified
-    codec3.encode(data)
-    assert codec3._k == 20
+    codec1.encode(data)
 
     # Should handle NaN and Inf values correctly
     # NaN and inf values should be replaced with 0.0
-    nan_encode = codec4.encode(nan_data)
-    nan_decoded = codec4.decode(nan_encode)
+    nan_encode = codec2.encode(nan_data)
+    nan_decoded = codec2.decode(nan_encode)
     assert not np.isnan(nan_decoded).any()
     assert not np.any(nan_decoded)
-
-    inf_encode = codec5.encode(inf_data)
-    inf_decoded = codec5.decode(inf_encode)
-    assert not np.isinf(inf_decoded).any()
-    assert not np.any(inf_decoded)
