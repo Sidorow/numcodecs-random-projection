@@ -22,8 +22,26 @@ from typing_extensions import (
 
 
 class RPMethod(Enum):
+    """Random projection method."""
+
     dct = "dct"
+    """
+    Discrete Cosine Transform (DCT).
+
+    Generate DxK projection matrix R using Type II Discrete Cosine Transform (DCT) basis ¹.
+    """
     gaussian = "gaussian"
+    """
+    Gaussian random projection.
+
+    Generate random DxK matrix R with entries drawn from N(0, 1/√K) distribution,
+    which preserves expected distances according to Johnson-Lindenstrauss lemma.
+
+    
+    [^1]:   José J. Amador,
+            Random projection and orthonormality for lossy image compression, Image and Vision Computing, Volume 25, Issue 5, 2007, Pages 754-766, ISSN 0262-8856, Available from:
+            [https://doi.org/10.1016/j.imavis.2006.05.018](https://doi.org/10.1016/j.imavis.2006.05.018)
+    """
 
 
 class RPCodec(Codec):
@@ -478,6 +496,12 @@ class RPCodec(Codec):
         return numcodecs.compat.ndarray_copy(reconstructed, out)  # type: ignore
 
     def get_config(self) -> dict:
+        """
+        Get codec configuration.
+
+        Returns:
+            dict: Codec configuration.
+        """
         config: dict[str, str | int | float] = dict(id=type(self).codec_id)
 
         if self._mae is not None:
