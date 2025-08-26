@@ -1,12 +1,12 @@
-[![image](https://img.shields.io/github/actions/workflow/status/juntyr/numcodecs-zero/ci.yml?branch=main)](https://github.com/juntyr/numcodecs-zero/actions/workflows/ci.yml?query=branch%3Amain)
+[![image](https://img.shields.io/github/actions/workflow/status/juntyr/numcodecs-zero/ci.yml?branch=main)](https://github.com/Sidorow/numcodecs-random-projection/actions/workflows/ci.yml?query=branch%3Amain)
 [![image](https://img.shields.io/pypi/v/numcodecs-zero.svg)](https://pypi.python.org/pypi/numcodecs-zero)
-[![image](https://img.shields.io/pypi/l/numcodecs-zero.svg)](https://github.com/juntyr/numcodecs-zero/blob/main/LICENSE)
+[![image](https://img.shields.io/pypi/l/numcodecs-zero.svg)](https://github.com/Sidorow/numcodecs-random-projection/blob/main/LICENSE)
 [![image](https://img.shields.io/pypi/pyversions/numcodecs-zero.svg)](https://pypi.python.org/pypi/numcodecs-zero)
-[![image](https://readthedocs.org/projects/numcodecs-zero/badge/?version=latest)](https://numcodecs-zero.readthedocs.io/en/latest/?badge=latest)
+[![image](https://sidorow.github.io/numcodecs-random-projection/)](https://sidorow.github.io/numcodecs-random-projection/)
 
 # numcodecs-random-projection
 
-`RandomProjectionCodec` for the [`numcodecs`] buffer compression API.
+`RPCodec` for the [`numcodecs`] buffer compression API.
 
 [`numcodecs`]: https://numcodecs.readthedocs.io/en/stable/
 
