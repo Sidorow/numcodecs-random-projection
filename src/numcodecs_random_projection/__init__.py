@@ -4,6 +4,9 @@
 
 __all__ = ["RPCodec", "RPMethod"]
 
+import logging
+import time
+from contextlib import contextmanager
 from enum import Enum
 from io import BytesIO
 from math import ceil
@@ -12,6 +15,7 @@ from sys import byteorder
 import numcodecs.compat
 import numcodecs.registry
 import numpy as np
+import tqdm
 import varint
 from numcodecs.abc import Codec
 from numpy.random import Generator, Philox
@@ -19,6 +23,8 @@ from typing_extensions import (
     Buffer,  # MSPV 3.12
     assert_never,  # MSPV 3.11
 )
+
+LOG = logging.getLogger(__name__)
 
 
 class RPMethod(Enum):
@@ -53,12 +59,13 @@ class RPCodec(Codec):
 
     """
 
-    __slots__ = ("_mae", "_cr", "_k", "_method", "_seed")
+    __slots__ = ("_mae", "_cr", "_k", "_method", "_seed", "_debug")
     _mae: None | float
     _cr: None | float
     _k: None | int
     _method: RPMethod
     _seed: int
+    _debug: bool
 
     codec_id: str = "rp"  # type: ignore
 
@@ -69,6 +76,7 @@ class RPCodec(Codec):
         k: None | int = None,
         method: str | RPMethod = RPMethod.dct,
         seed: int | None = None,
+        debug: bool = False,
     ) -> None:
         """
         Initialize Random Projection codec.
@@ -92,6 +100,9 @@ class RPCodec(Codec):
         seed : int
             Random seed for reproducible results. If None, results will be
             non-deterministic when using the Gaussian method.
+        debug : bool
+            Whether debug information should be printed during encoding and
+            decoding.
 
         Raises
         ------
@@ -118,6 +129,8 @@ class RPCodec(Codec):
             self._seed = np.random.randint(0, 2**31 - 1)
         else:
             self._seed = seed
+
+        self._debug = debug
 
     def _estimate_k_for_target_mae(
         self,
@@ -187,22 +200,56 @@ class RPCodec(Codec):
         np.ndarray
             Projected data with shape (N, K)
         """
-        projected_blocks = []
+
         philox = Philox(seed=self._seed)
         rng = Generator(philox)
+
+        out = np.empty((data.shape[0], K), dtype=dtype)
+        R_block = None
+        out_block = None
+
+        if self._debug:
+            progress = tqdm.tqdm(total=K)
+
         for k_start in range(0, K, block_size):
             k_end = min(k_start + block_size, K)
             actual_block_size = k_end - k_start
 
-            R_block = self._gen_R_block(D, K, k_start, dtype, actual_block_size, rng)
+            if R_block is None or R_block.shape != (D, actual_block_size):
+                R_block = np.empty((D, actual_block_size), dtype=dtype)
 
-            block_proj = np.matmul(data, R_block)
-            projected_blocks.append(block_proj)
+            if out_block is None or out_block.shape != (
+                data.shape[0],
+                actual_block_size,
+            ):
+                out_block = np.empty((data.shape[0], actual_block_size), dtype=dtype)
 
-            del R_block
+            block_timing = [0.0]
+            with self._debug_timing(block_timing):
+                self._gen_R_block(K, k_start, rng, out=R_block)
 
-        projected = np.concatenate(projected_blocks, axis=1).astype(dtype)
-        return projected
+            matmul_timing = [0.0]
+            with self._debug_timing(matmul_timing):
+                np.matmul(data, R_block, out=out_block)
+                out[:, k_start:k_end] = out_block
+
+            if self._debug:
+                progress.set_postfix_str(
+                    f"encode N={data.shape[0]} D={D} Kb={actual_block_size} Rgen={np.round(block_timing[0], 2)}s matmul={np.round(matmul_timing[0], 2)}s"
+                )
+                progress.update(actual_block_size)
+
+        return out
+
+    @contextmanager
+    def _debug_timing(self, out: list[float]):
+        if self._debug:
+            start = time.perf_counter()
+            yield
+            end = time.perf_counter()
+            out[0] = end - start
+        else:
+            yield
 
     def _reconstruct_blocks(
         self,
@@ -238,24 +285,44 @@ class RPCodec(Codec):
         np.ndarray
             Reconstructed data with shape (N, D)
         """
-        reconstructed_blocks = np.zeros((projected.shape[0], D), dtype=dtype)
+
         philox = Philox(seed=seed)
         rng = Generator(philox)
+
+        out = np.zeros((projected.shape[0], D), dtype=dtype)
+        R_block = None
+        rec_block = np.empty((projected.shape[0], D), dtype=dtype)
+
+        if self._debug:
+            progress = tqdm.tqdm(total=K)
+
         for k_start in range(0, K, block_size):
             k_end = min(k_start + block_size, K)
             actual_block_size = k_end - k_start
 
-            R_block = self._gen_R_block(D, K, k_start, dtype, actual_block_size, rng)
-            R_block_T = R_block.T
-            del R_block
+            if R_block is None or R_block.shape != (D, actual_block_size):
+                R_block = np.empty((D, actual_block_size), dtype=dtype)
 
-            projected_block = projected[:, k_start:k_end]
-            rec_block = np.matmul(projected_block, R_block_T)
+            block_timing = [0.0]
+            with self._debug_timing(block_timing):
+                self._gen_R_block(K, k_start, rng, out=R_block)
 
-            reconstructed_blocks += rec_block
-            del R_block_T, rec_block
+            matmul_timing = [0.0]
+            with self._debug_timing(matmul_timing):
+                projected_block = projected[:, k_start:k_end]
+                np.matmul(projected_block, R_block.T, out=rec_block)
 
-        return reconstructed_blocks
+            acc_timing = [0.0]
+            with self._debug_timing(acc_timing):
+                out += rec_block
+
+            if self._debug:
+                progress.set_postfix_str(
+                    f"decode N={out.shape[0]} D={D} Kb={actual_block_size} Rgen={np.round(block_timing[0], 2)}s matmul={np.round(matmul_timing[0], 2)}s acc={np.round(acc_timing[0], 2)}s"
+                )
+                progress.update(actual_block_size)
+
+        return out
 
     def _gen_R(
         self, D: int, K: int, dtype: np.dtype, seed: int | None = None
@@ -302,32 +369,25 @@ class RPCodec(Codec):
 
     def _gen_R_block(
         self,
-        D: int,
         K: int,
         k_start: int,
-        dtype: np.dtype,
-        block_size: int,
         rng: Generator,
-    ) -> np.ndarray:
+        out: np.ndarray,
+    ) -> None:
         """
         Generate a block of projection matrix R using a specified method.
 
         Parameters
         ----------
-        D : int
-            Number of input features.
+        K : int
+            Number of projected features.
         k_start : int
             Starting index for the projected space.
-        dtype : np.dtype
-            Data type for the matrix. Should match the
-            original data dtype for consistency.
-        block_size : int
-            Size of the block to generate.
-
-        Returns
-        -------
-        np.ndarray
-            Block of matrix R with shape (D, block_size)
+        rng : Generator
+            Random number generator.
+        out : np.ndarray
+            Block of matrix R with shape (D, block_size) that will be filled
+            by this method.
 
         Notes
         -----
@@ -336,20 +396,24 @@ class RPCodec(Codec):
             it would be identical to the fully generated R matrix.
         """
 
+        D, block_size = out.shape
+        dtype = out.dtype
+
         match self._method:
             case RPMethod.dct:
                 i = np.arange(D, dtype=dtype).reshape(-1, 1)
                 m = np.arange(k_start, k_start + block_size, dtype=dtype).reshape(1, -1)
                 alpha_m = np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
-                R_block = alpha_m * np.cos((np.pi * (2 * i + 1) * m) / (2 * D))
+                # R_block = alpha_m * np.cos((np.pi * (2 * i + 1) * m) / (2 * D))
+                out[:] = 2 * i + 1
+                out[:] *= m * np.pi
+                out[:] /= 2 * D
+                np.cos(out, out=out)
+                out *= alpha_m
             case RPMethod.gaussian:
-                R_block = rng.normal(0, 1 / np.sqrt(K), size=(D, block_size)).astype(
-                    dtype
-                )
+                out[:] = rng.normal(0, 1 / np.sqrt(K), size=(D, block_size))
             case _:
                 assert_never(self._method)
-
-        return R_block
 
     def encode(self, buf: Buffer) -> Buffer:
         """
@@ -393,10 +457,13 @@ class RPCodec(Codec):
             assert self._k is not None
             k = self._k
 
+        if self._debug:
+            LOG.debug(f"encode with k={k}")
+
         np.nan_to_num(data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
         if k > 1000:
-            block_size = 500  # Arbitrary for now. Maybe calculate optimal later?
+            block_size = 256  # Arbitrary for now. Maybe calculate optimal later?
             projected = self._project_blocks(
                 data, data.shape[1], k, original_dtype, block_size
             )
@@ -484,7 +551,7 @@ class RPCodec(Codec):
             projected = projected.byteswap()
 
         if k > 1000:
-            block_size = 500
+            block_size = 256
             reconstructed = self._reconstruct_blocks(
                 projected, original_shape[1], k, original_dtype, block_size, seed
             )
