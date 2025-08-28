@@ -448,6 +448,8 @@ class RPCodec(Codec):
                 f"RPCodec requires 2D floating-point data, got {data.dtype} and {data.ndim}D data"
             )
 
+        np.nan_to_num(data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+
         data_mean = np.mean(data, axis=0, keepdims=True)
         data_std = np.std(data, axis=0, keepdims=True)
         data_std = np.where(data_std == 0, 1, data_std)
@@ -469,8 +471,6 @@ class RPCodec(Codec):
 
         if self._debug:
             LOG.debug(f"encode with k={k}")
-
-        np.nan_to_num(data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
         if k > 1000:
             block_size = 256
