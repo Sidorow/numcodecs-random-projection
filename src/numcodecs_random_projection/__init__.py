@@ -54,8 +54,12 @@ class RPCodec(Codec):
     """
     Random projection codec for lossy compression of numerical data.
 
-    Compresses 2D data by projecting it onto a lower-dimensional subspace using a specified method.
+    Compresses 2D finite floating point data by projecting it onto a lower-dimensional subspace using a specified method.
     Discrete Cosine Transform (DCT) is used by default.
+
+    A two-dimensional array of shape N x D is encoded as an array of
+    shape N x K, where K is either set explicitly or chosen with compression ratio `cr`.
+    Alternatively, K can be estimated from the data during encoding by giving a specified Mean Absolute Error (MAE) during initialization.
 
     """
 
