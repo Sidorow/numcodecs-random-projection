@@ -156,16 +156,16 @@ class RPCodec(Codec):
         """
 
         D = data.shape[1]
-        data_std = np.std(data)
 
         assert self._mae is not None
-        normalized_mae = self._mae / data_std if data_std > 0 else self._mae
+        target_mae = self._mae
+        # normalized_mae = self._mae / data_std if data_std > 0 else self._mae
 
         match self._method:
             case RPMethod.gaussian:
-                ratio = 1 - normalized_mae
+                ratio = 1 - target_mae
             case RPMethod.dct:
-                ratio = 1 - np.sqrt(normalized_mae * 8)
+                ratio = 1 - np.sqrt(target_mae * 4)
             case _:
                 assert_never(self._method)
 
@@ -448,12 +448,18 @@ class RPCodec(Codec):
                 f"RPCodec requires 2D floating-point data, got {data.dtype} and {data.ndim}D data"
             )
 
+        data_mean = np.mean(data, axis=0, keepdims=True)
+        data_std = np.std(data, axis=0, keepdims=True)
+        data_std = np.where(data_std == 0, 1, data_std)
+
+        standardized_data = (data - data_mean) / data_std
+
         original_shape = data.shape
         original_dtype = data.dtype
 
         k: int
         if self._mae is not None:
-            k = self._estimate_k_for_target_mae(data)
+            k = self._estimate_k_for_target_mae(standardized_data)
         elif self._cr is not None:
             assert self._cr is not None
             k = int(ceil(data.shape[1] / self._cr))
@@ -467,13 +473,13 @@ class RPCodec(Codec):
         np.nan_to_num(data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
         if k > 1000:
-            block_size = 256  # Arbitrary for now. Maybe calculate optimal later?
+            block_size = 256
             projected = self._project_blocks(
-                data, data.shape[1], k, original_dtype, block_size
+                standardized_data, data.shape[1], k, original_dtype, block_size
             )
         else:
             R = self._gen_R(data.shape[1], k, original_dtype, self._seed)
-            projected = np.matmul(data, R)
+            projected = np.matmul(standardized_data, R)
 
         bio = BytesIO()
 
@@ -487,6 +493,14 @@ class RPCodec(Codec):
 
         bio.write(varint.encode(k))
         bio.write(varint.encode(self._seed))
+
+        mean_bytes = data_mean.astype(original_dtype).tobytes()
+        bio.write(varint.encode(len(mean_bytes)))
+        bio.write(mean_bytes)
+
+        std_bytes = data_std.astype(original_dtype).tobytes()
+        bio.write(varint.encode(len(std_bytes)))
+        bio.write(std_bytes)
 
         projected_byteorder = projected.dtype.byteorder
 
@@ -536,6 +550,14 @@ class RPCodec(Codec):
         k = varint.decode_stream(bio)
         seed = varint.decode_stream(bio)
 
+        mean_len = varint.decode_stream(bio)
+        mean_bytes = bio.read(mean_len)
+        data_mean = np.frombuffer(mean_bytes, dtype=original_dtype).reshape(1, -1)
+
+        std_len = varint.decode_stream(bio)
+        std_bytes = bio.read(std_len)
+        data_std = np.frombuffer(std_bytes, dtype=original_dtype).reshape(1, -1)
+
         proj_len = varint.decode_stream(bio)
         proj_bytes = bio.read(proj_len)
 
@@ -563,6 +585,7 @@ class RPCodec(Codec):
             R = self._gen_R(original_shape[1], k, original_dtype, seed)
             reconstructed = np.matmul(projected, R.T)
 
+        reconstructed = reconstructed * data_std + data_mean
         reconstructed = reconstructed.reshape(original_shape)
         return numcodecs.compat.ndarray_copy(reconstructed, out)  # type: ignore
 
