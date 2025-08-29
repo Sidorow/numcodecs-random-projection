@@ -58,8 +58,8 @@ class RPCodec(Codec):
     Discrete Cosine Transform (DCT) is used by default.
 
     A two-dimensional array of shape N x D is encoded as an array of
-    shape N x K, where K is either set explicitly or chosen with compression ratio `cr`.
-    Alternatively, K can be estimated from the data during encoding by giving a specified Mean Absolute Error (MAE) during initialization.
+    shape N x K, where `k` is either set explicitly or chosen with compression ratio `cr`.
+    Alternatively, `k` can be estimated from the data during encoding by giving a specified Mean Absolute Error (MAE) during initialization.
 
     """
 
@@ -88,15 +88,15 @@ class RPCodec(Codec):
         Parameters
         ----------
         mae : float
-            Target mean absolute error. If specified, k will be estimated from
-            data during encoding. Note that the bound is *not* guatanteed to be
+            Target mean absolute error. If specified, `k` will be estimated from
+            data during encoding. Note that the bound is *not* guaranteed to be
             met.
         cr : float
-            Target compression ratio. If specified, k will be calculated as D/cr
+            Target compression ratio. If specified, `k` will be calculated as D/`cr`
             where D is the number of features in the input data.
         k : int
-            Number of dimensions in the projected space. Will be used over cr if
-            both are specified.
+            Number of dimensions in the projected space. Will be used over `cr` if
+            both are specified. Estimated if `mae` is specified.
         method : str | RPMethod
             Method for generating the projection matrix. Please refer to the
             [`RPMethod`][numcodecs_random_projection.RPMethod] enumeration for
@@ -136,23 +136,224 @@ class RPCodec(Codec):
 
         self._debug = debug
 
+    def encode(self, buf: Buffer) -> Buffer:
+        """
+        Encode data using random projection.
+
+        During encode, the input data is standardized (mean=0, std=1) before projection.
+
+        If `mae` is specified, the number of projected dimensions `k` is estimated based on the standardized data.
+
+        Parameters
+        ----------
+        buf : Buffer
+            Input data buffer. Must be a 2D array with shape (n_samples, d_features).
+
+        Returns
+        -------
+        enc : bytes
+            Serialized encoded data containing:
+            - Standardized data statistics (mean, std)
+            - Original data shape and dtype
+            - Projected data
+            - Compression parameters
+        """
+        data = numcodecs.compat.ensure_ndarray(buf)
+
+        validations = [
+            not np.issubdtype(data.dtype, np.floating),
+            data.ndim != 2,
+        ]
+
+        if any(validations):
+            raise ValueError(
+                f"RPCodec requires 2D floating-point data, got {data.dtype} and {data.ndim}D data"
+            )
+
+        np.nan_to_num(data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+
+        data_mean = np.mean(data)
+        data_std = np.std(data)
+        if data_std == 0:
+            data_std = 1
+
+        standardized_data = (data - data_mean) / data_std
+
+        original_shape = data.shape
+        original_dtype = data.dtype
+
+        k: int
+        if self._mae is not None:
+            k = self._estimate_k_for_target_mae(standardized_data)
+        elif self._cr is not None:
+            assert self._cr is not None
+            k = int(ceil(data.shape[1] / self._cr))
+        else:
+            assert self._k is not None
+            k = self._k
+
+        if self._debug:
+            LOG.debug(f"encode with k={k}")
+
+        if k > 1000:
+            block_size = 256
+            projected = self._project_blocks(
+                standardized_data, data.shape[1], k, original_dtype, block_size
+            )
+        else:
+            R = self._gen_R(data.shape[1], k, original_dtype, self._seed)
+            projected = np.matmul(standardized_data, R)
+
+        bio = BytesIO()
+
+        bio.write(varint.encode(len(original_shape)))
+        for dim in original_shape:
+            bio.write(varint.encode(dim))
+
+        dtype_str = original_dtype.str.encode("ascii")
+        bio.write(varint.encode(len(dtype_str)))
+        bio.write(dtype_str)
+
+        bio.write(varint.encode(k))
+        bio.write(varint.encode(self._seed))
+
+        mean_bytes = data_mean.tobytes()
+        bio.write(varint.encode(len(mean_bytes)))
+        bio.write(mean_bytes)
+
+        std_bytes = data_std.tobytes()
+        bio.write(varint.encode(len(std_bytes)))
+        bio.write(std_bytes)
+
+        projected_byteorder = projected.dtype.byteorder
+
+        projected_byteorder = (
+            projected_byteorder
+            if projected_byteorder in ("<", ">")
+            else ("<" if (byteorder == "little") else ">")
+        )
+
+        if projected_byteorder != "<":
+            projected = projected.byteswap()
+
+        proj_bytes = projected.tobytes()
+        bio.write(varint.encode(len(proj_bytes)))
+        bio.write(proj_bytes)
+
+        return bio.getvalue()
+
+    def decode(self, buf: Buffer, out: None | Buffer = None) -> Buffer:
+        """
+        Decode random projection encoded data.
+
+        During decode, the standardized data is reconstructed and denormalized.
+
+        Parameters
+        ----------
+        buf : Buffer
+            Encoded data from RPCodec.
+        out : Buffer, optional
+            Writeable buffer to store decoded data.
+
+        Returns
+        -------
+        dec : Buffer
+            Reconstructed data with original shape and dtype.
+        """
+
+        data = numcodecs.compat.ensure_bytes(buf)
+
+        bio = BytesIO(data)
+
+        ndim = varint.decode_stream(bio)
+        original_shape = tuple(varint.decode_stream(bio) for _ in range(ndim))
+
+        dtype_len = varint.decode_stream(bio)
+        dtype_str = bio.read(dtype_len).decode("ascii")
+        original_dtype = np.dtype(dtype_str)
+
+        k = varint.decode_stream(bio)
+        seed = varint.decode_stream(bio)
+
+        mean_len = varint.decode_stream(bio)
+        mean_bytes = bio.read(mean_len)
+        data_mean = np.frombuffer(mean_bytes, dtype=original_dtype)
+
+        std_len = varint.decode_stream(bio)
+        std_bytes = bio.read(std_len)
+        data_std = np.frombuffer(std_bytes, dtype=original_dtype)
+
+        proj_len = varint.decode_stream(bio)
+        proj_bytes = bio.read(proj_len)
+
+        projected = np.frombuffer(
+            proj_bytes, dtype=original_dtype.newbyteorder("<")
+        ).reshape((original_shape[0], k))
+
+        projected_byteorder = projected.dtype.byteorder
+
+        projected_byteorder = (
+            projected_byteorder
+            if projected_byteorder in ("<", ">")
+            else ("<" if (byteorder == "little") else ">")
+        )
+
+        if byteorder == "big":
+            projected = projected.byteswap()
+
+        if k > 1000:
+            block_size = 256
+            reconstructed = self._reconstruct_blocks(
+                projected, original_shape[1], k, original_dtype, block_size, seed
+            )
+        else:
+            R = self._gen_R(original_shape[1], k, original_dtype, seed)
+            reconstructed = np.matmul(projected, R.T)
+
+        reconstructed = reconstructed * data_std + data_mean
+        reconstructed = reconstructed.reshape(original_shape)
+        return numcodecs.compat.ndarray_copy(reconstructed, out)  # type: ignore
+
+    def get_config(self) -> dict:
+        """
+        Get codec configuration.
+
+        Returns:
+            dict: Codec configuration.
+        """
+        config: dict[str, str | int | float] = dict(id=type(self).codec_id)
+
+        if self._mae is not None:
+            config["mae"] = self._mae
+        if self._cr is not None:
+            config["cr"] = self._cr
+        if self._k is not None:
+            config["k"] = self._k
+
+        config["method"] = self._method.name
+        config["seed"] = self._seed
+
+        return config
+
     def _estimate_k_for_target_mae(
         self,
         data: np.ndarray,
     ) -> int:
         """
-        Estimate the number of dimensions k for the projected space based on the
+        Estimate the number of dimensions 'k' for the projected space based on the standardized
         input data and targeted MAE.
+
+        This method assumes standardized input data prior to calling via encode method.
 
         Parameters
         ----------
         data : np.ndarray
-            Input data.
+            Standardized input data (mean=0, std=1).
 
         Returns
         -------
         int
-            Estimated k
+            Estimated k (number of projected dimensions)
         """
 
         D = data.shape[1]
@@ -244,16 +445,6 @@ class RPCodec(Codec):
                 progress.update(actual_block_size)
 
         return out
-
-    @contextmanager
-    def _debug_timing(self, out: list[float]):
-        if self._debug:
-            start = time.perf_counter()
-            yield
-            end = time.perf_counter()
-            out[0] = end - start
-        else:
-            yield
 
     def _reconstruct_blocks(
         self,
@@ -419,196 +610,15 @@ class RPCodec(Codec):
             case _:
                 assert_never(self._method)
 
-    def encode(self, buf: Buffer) -> Buffer:
-        """
-        Encode data using random projection.
-
-        Parameters
-        ----------
-        buf : Buffer
-            Input data buffer. Must be a 2D array with shape (n_samples, d_features).
-
-        Returns
-        -------
-        enc : bytes
-            Serialized encoded data containing:
-            - Original data shape and dtype
-            - Projected data
-            - Compression parameters
-        """
-        data = numcodecs.compat.ensure_ndarray(buf)
-
-        validations = [
-            not np.issubdtype(data.dtype, np.floating),
-            data.ndim != 2,
-        ]
-
-        if any(validations):
-            raise ValueError(
-                f"RPCodec requires 2D floating-point data, got {data.dtype} and {data.ndim}D data"
-            )
-
-        np.nan_to_num(data, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-
-        data_mean = np.mean(data, axis=0, keepdims=True)
-        data_std = np.std(data, axis=0, keepdims=True)
-        data_std = np.where(data_std == 0, 1, data_std)
-
-        standardized_data = (data - data_mean) / data_std
-
-        original_shape = data.shape
-        original_dtype = data.dtype
-
-        k: int
-        if self._mae is not None:
-            k = self._estimate_k_for_target_mae(standardized_data)
-        elif self._cr is not None:
-            assert self._cr is not None
-            k = int(ceil(data.shape[1] / self._cr))
-        else:
-            assert self._k is not None
-            k = self._k
-
+    @contextmanager
+    def _debug_timing(self, out: list[float]):
         if self._debug:
-            LOG.debug(f"encode with k={k}")
-
-        if k > 1000:
-            block_size = 256
-            projected = self._project_blocks(
-                standardized_data, data.shape[1], k, original_dtype, block_size
-            )
+            start = time.perf_counter()
+            yield
+            end = time.perf_counter()
+            out[0] = end - start
         else:
-            R = self._gen_R(data.shape[1], k, original_dtype, self._seed)
-            projected = np.matmul(standardized_data, R)
-
-        bio = BytesIO()
-
-        bio.write(varint.encode(len(original_shape)))
-        for dim in original_shape:
-            bio.write(varint.encode(dim))
-
-        dtype_str = original_dtype.str.encode("ascii")
-        bio.write(varint.encode(len(dtype_str)))
-        bio.write(dtype_str)
-
-        bio.write(varint.encode(k))
-        bio.write(varint.encode(self._seed))
-
-        mean_bytes = data_mean.astype(original_dtype).tobytes()
-        bio.write(varint.encode(len(mean_bytes)))
-        bio.write(mean_bytes)
-
-        std_bytes = data_std.astype(original_dtype).tobytes()
-        bio.write(varint.encode(len(std_bytes)))
-        bio.write(std_bytes)
-
-        projected_byteorder = projected.dtype.byteorder
-
-        projected_byteorder = (
-            projected_byteorder
-            if projected_byteorder in ("<", ">")
-            else ("<" if (byteorder == "little") else ">")
-        )
-
-        if projected_byteorder != "<":
-            projected = projected.byteswap()
-
-        proj_bytes = projected.tobytes()
-        bio.write(varint.encode(len(proj_bytes)))
-        bio.write(proj_bytes)
-
-        return bio.getvalue()
-
-    def decode(self, buf: Buffer, out: None | Buffer = None) -> Buffer:
-        """
-        Decode random projection encoded data.
-
-        Parameters
-        ----------
-        buf : Buffer
-            Encoded data from RPCodec.
-        out : Buffer, optional
-            Writeable buffer to store decoded data.
-
-        Returns
-        -------
-        dec : Buffer
-            Reconstructed data with original shape and dtype.
-        """
-
-        data = numcodecs.compat.ensure_bytes(buf)
-
-        bio = BytesIO(data)
-
-        ndim = varint.decode_stream(bio)
-        original_shape = tuple(varint.decode_stream(bio) for _ in range(ndim))
-
-        dtype_len = varint.decode_stream(bio)
-        dtype_str = bio.read(dtype_len).decode("ascii")
-        original_dtype = np.dtype(dtype_str)
-
-        k = varint.decode_stream(bio)
-        seed = varint.decode_stream(bio)
-
-        mean_len = varint.decode_stream(bio)
-        mean_bytes = bio.read(mean_len)
-        data_mean = np.frombuffer(mean_bytes, dtype=original_dtype).reshape(1, -1)
-
-        std_len = varint.decode_stream(bio)
-        std_bytes = bio.read(std_len)
-        data_std = np.frombuffer(std_bytes, dtype=original_dtype).reshape(1, -1)
-
-        proj_len = varint.decode_stream(bio)
-        proj_bytes = bio.read(proj_len)
-
-        projected = np.frombuffer(
-            proj_bytes, dtype=original_dtype.newbyteorder("<")
-        ).reshape((original_shape[0], k))
-
-        projected_byteorder = projected.dtype.byteorder
-
-        projected_byteorder = (
-            projected_byteorder
-            if projected_byteorder in ("<", ">")
-            else ("<" if (byteorder == "little") else ">")
-        )
-
-        if byteorder == "big":
-            projected = projected.byteswap()
-
-        if k > 1000:
-            block_size = 256
-            reconstructed = self._reconstruct_blocks(
-                projected, original_shape[1], k, original_dtype, block_size, seed
-            )
-        else:
-            R = self._gen_R(original_shape[1], k, original_dtype, seed)
-            reconstructed = np.matmul(projected, R.T)
-
-        reconstructed = reconstructed * data_std + data_mean
-        reconstructed = reconstructed.reshape(original_shape)
-        return numcodecs.compat.ndarray_copy(reconstructed, out)  # type: ignore
-
-    def get_config(self) -> dict:
-        """
-        Get codec configuration.
-
-        Returns:
-            dict: Codec configuration.
-        """
-        config: dict[str, str | int | float] = dict(id=type(self).codec_id)
-
-        if self._mae is not None:
-            config["mae"] = self._mae
-        if self._cr is not None:
-            config["cr"] = self._cr
-        if self._k is not None:
-            config["k"] = self._k
-
-        config["method"] = self._method.name
-        config["seed"] = self._seed
-
-        return config
+            yield
 
 
 numcodecs.registry.register_codec(RPCodec)
