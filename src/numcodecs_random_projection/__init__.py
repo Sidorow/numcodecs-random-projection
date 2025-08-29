@@ -221,7 +221,7 @@ class RPCodec(Codec):
         bio.write(varint.encode(len(mean_bytes)))
         bio.write(mean_bytes)
 
-        std_bytes = data_std.tobytes()
+        std_bytes = np.array(data_std, dtype=original_dtype).tobytes()
         bio.write(varint.encode(len(std_bytes)))
         bio.write(std_bytes)
 
