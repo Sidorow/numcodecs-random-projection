@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from numcodecs_random_projection.mt_rng import MultithreadedRNG
+
 TEST_DIR = Path(__file__).parent
 TEST_DATA_PATH = TEST_DIR / "data" / "test_data.nc"
 
@@ -186,6 +188,38 @@ def test_reconstruct_seed():
     decoded4 = codec2.decode(encoded_large)
 
     assert np.array_equal(decoded3, decoded4)
+
+
+def test_multithreaded_rng_thread_count_invariance():
+    # Test that MultithreadedRNG produces identical output regardless of thread count.
+    seed = 42
+    shape = (2000, 100)
+
+    rng_1t = MultithreadedRNG(seed=seed, threads=1)
+    rng_1t.fill_arr(shape)
+    result_1t = rng_1t.values.copy()
+
+    rng_2t = MultithreadedRNG(seed=seed, threads=2)
+    rng_2t.fill_arr(shape)
+    result_2t = rng_2t.values.copy()
+
+    rng_4t = MultithreadedRNG(seed=seed, threads=4)
+    rng_4t.fill_arr(shape)
+    result_4t = rng_4t.values.copy()
+
+    rng_8t = MultithreadedRNG(seed=seed, threads=8)
+    rng_8t.fill_arr(shape)
+    result_8t = rng_8t.values.copy()
+
+    np.testing.assert_array_equal(
+        result_1t, result_2t, err_msg="1-thread vs 2-thread RNG output mismatch"
+    )
+    np.testing.assert_array_equal(
+        result_1t, result_4t, err_msg="1-thread vs 4-thread RNG output mismatch"
+    )
+    np.testing.assert_array_equal(
+        result_1t, result_8t, err_msg="1-thread vs 8-thread RNG output mismatch"
+    )
 
 
 def test_block_vs_full_matrix_dct():
