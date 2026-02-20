@@ -27,6 +27,9 @@ from .mt_rng import MultithreadedRNG
 
 LOG = logging.getLogger(__name__)
 
+_BLOCK_THRESHOLD = 1000
+_BLOCK_SIZE = 512
+
 
 class RPMethod(Enum):
     """Random projection method."""
@@ -196,8 +199,8 @@ class RPCodec(Codec):
         if self._debug:
             LOG.debug(f"encode with k={k}")
 
-        if k > 1000:
-            block_size = 512
+        if k > _BLOCK_THRESHOLD:
+            block_size = _BLOCK_SIZE
             projected = self._project_blocks(
                 standardized_data, data.shape[1], k, original_dtype, block_size
             )
@@ -302,8 +305,8 @@ class RPCodec(Codec):
         if byteorder == "big":
             projected = projected.byteswap()
 
-        if k > 1000:
-            block_size = 512
+        if k > _BLOCK_THRESHOLD:
+            block_size = _BLOCK_SIZE
             reconstructed = self._reconstruct_blocks(
                 projected, original_shape[1], k, original_dtype, block_size, seed
             )
