@@ -18,13 +18,17 @@ import numpy as np
 import tqdm
 import varint
 from numcodecs.abc import Codec
-from numpy.random import Generator, Philox
 from typing_extensions import (
     Buffer,  # MSPV 3.12
     assert_never,  # MSPV 3.11
 )
 
+from .mt_rng import MultithreadedRNG
+
 LOG = logging.getLogger(__name__)
+
+_BLOCK_THRESHOLD = 1000
+_BLOCK_SIZE = 512
 
 
 class RPMethod(Enum):
@@ -195,8 +199,8 @@ class RPCodec(Codec):
         if self._debug:
             LOG.debug(f"encode with k={k}")
 
-        if k > 1000:
-            block_size = 256
+        if k > _BLOCK_THRESHOLD:
+            block_size = _BLOCK_SIZE
             projected = self._project_blocks(
                 standardized_data, data.shape[1], k, original_dtype, block_size
             )
@@ -301,8 +305,8 @@ class RPCodec(Codec):
         if byteorder == "big":
             projected = projected.byteswap()
 
-        if k > 1000:
-            block_size = 256
+        if k > _BLOCK_THRESHOLD:
+            block_size = _BLOCK_SIZE
             reconstructed = self._reconstruct_blocks(
                 projected, original_shape[1], k, original_dtype, block_size, seed
             )
@@ -406,8 +410,7 @@ class RPCodec(Codec):
             Projected data with shape (N, K)
         """
 
-        philox = Philox(seed=self._seed)
-        rng = Generator(philox)
+        rng = MultithreadedRNG(seed=self._seed)
 
         out = np.empty((data.shape[0], K), dtype=dtype)
         R_block = None
@@ -481,8 +484,7 @@ class RPCodec(Codec):
             Reconstructed data with shape (N, D)
         """
 
-        philox = Philox(seed=seed)
-        rng = Generator(philox)
+        rng = MultithreadedRNG(seed=seed)
 
         out = np.zeros((projected.shape[0], D), dtype=dtype)
         R_block = None
@@ -554,9 +556,10 @@ class RPCodec(Codec):
                 alpha_m = np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
                 R = alpha_m * np.cos((np.pi * (2 * i + 1) * m) / (2 * D))
             case RPMethod.gaussian:
-                philox = Philox(seed=seed)
-                rng = Generator(philox)
-                R = rng.normal(0, 1 / np.sqrt(K), size=(D, K))
+                scale = np.sqrt(1 / K)
+                rng = MultithreadedRNG(seed=seed)
+                rng.fill_arr(shape=(D, K))
+                R = rng.values * scale
             case _:
                 assert_never(self._method)
 
@@ -566,7 +569,7 @@ class RPCodec(Codec):
         self,
         K: int,
         k_start: int,
-        rng: Generator,
+        rng: MultithreadedRNG,
         out: np.ndarray,
     ) -> None:
         """
@@ -578,17 +581,17 @@ class RPCodec(Codec):
             Number of projected features.
         k_start : int
             Starting index for the projected space.
-        rng : Generator
-            Random number generator.
+        rng : MultithreadedRNG
+            Random number generator based on https://numpy.org/doc/stable/reference/random/multithreading.html.
         out : np.ndarray
             Block of matrix R with shape (D, block_size) that will be filled
             by this method.
 
         Notes
         -----
-        - Generating Gaussian R matrix block by block produces the same numbers as if the full matrix was generated
-            but due to the shape, the slices are not exact. If the full block generated R is concatenated by axis=0 and reshaped to (D, K),
-            it would be identical to the fully generated R matrix.
+        - Generating Gaussian R matrix block by block does not produce the same numbers as the Gen_R method.
+            This is because the random numbers are generated in chunks based on the block size,
+            so the sequence of random numbers used for each block is different than if the full matrix was generated at once.
         """
 
         D, block_size = out.shape
@@ -599,14 +602,16 @@ class RPCodec(Codec):
                 i = np.arange(D, dtype=dtype).reshape(-1, 1)
                 m = np.arange(k_start, k_start + block_size, dtype=dtype).reshape(1, -1)
                 alpha_m = np.where(m == 0, np.sqrt(1 / D), np.sqrt(2 / D))
-                # R_block = alpha_m * np.cos((np.pi * (2 * i + 1) * m) / (2 * D))
                 out[:] = 2 * i + 1
                 out[:] *= m * np.pi
                 out[:] /= 2 * D
                 np.cos(out, out=out)
                 out *= alpha_m
             case RPMethod.gaussian:
-                out[:] = rng.normal(0, 1 / np.sqrt(K), size=(D, block_size))
+                scale = np.sqrt(1 / K)
+                if hasattr(rng, "fill_arr"):
+                    rng.fill_arr(shape=(D, block_size))
+                    np.multiply(rng.values, scale, out=out)
             case _:
                 assert_never(self._method)
 
