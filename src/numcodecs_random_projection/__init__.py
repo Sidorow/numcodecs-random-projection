@@ -589,9 +589,9 @@ class RPCodec(Codec):
 
         Notes
         -----
-        - Generating Gaussian R matrix block by block produces the same numbers as if the full matrix was generated
-            but due to the shape, the slices are not exact. If the full block generated R is concatenated by axis=0 and reshaped to (D, K),
-            it would be identical to the fully generated R matrix.
+        - Generating Gaussian R matrix block by block does not produce the same numbers as the Gen_R method.
+            This is because the random numbers are generated in chunks based on the block size,
+            so the sequence of random numbers used for each block is different than if the full matrix was generated at once.
         """
 
         D, block_size = out.shape
