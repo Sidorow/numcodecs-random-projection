@@ -12,11 +12,11 @@ from io import BytesIO
 from math import ceil
 from sys import byteorder
 
+import leb128
 import numcodecs.compat
 import numcodecs.registry
 import numpy as np
 import tqdm
-import varint
 from numcodecs.abc import Codec
 from typing_extensions import (
     Buffer,  # MSPV 3.12
@@ -47,7 +47,7 @@ class RPMethod(Enum):
     Generate random DxK matrix R with entries drawn from N(0, 1/√K) distribution,
     which preserves expected distances according to Johnson-Lindenstrauss lemma.
 
-    
+
     [^1]:   José J. Amador,
             Random projection and orthonormality for lossy image compression, Image and Vision Computing, Volume 25, Issue 5, 2007, Pages 754-766, ISSN 0262-8856, Available from:
             [https://doi.org/10.1016/j.imavis.2006.05.018](https://doi.org/10.1016/j.imavis.2006.05.018)
@@ -210,23 +210,23 @@ class RPCodec(Codec):
 
         bio = BytesIO()
 
-        bio.write(varint.encode(len(original_shape)))
+        bio.write(leb128.u.encode(len(original_shape)))
         for dim in original_shape:
-            bio.write(varint.encode(dim))
+            bio.write(leb128.u.encode(dim))
 
         dtype_str = original_dtype.str.encode("ascii")
-        bio.write(varint.encode(len(dtype_str)))
+        bio.write(leb128.u.encode(len(dtype_str)))
         bio.write(dtype_str)
 
-        bio.write(varint.encode(k))
-        bio.write(varint.encode(self._seed))
+        bio.write(leb128.u.encode(k))
+        bio.write(leb128.u.encode(self._seed))
 
         mean_bytes = np.array(data_mean, dtype=original_dtype).tobytes()
-        bio.write(varint.encode(len(mean_bytes)))
+        bio.write(leb128.u.encode(len(mean_bytes)))
         bio.write(mean_bytes)
 
         std_bytes = np.array(data_std, dtype=original_dtype).tobytes()
-        bio.write(varint.encode(len(std_bytes)))
+        bio.write(leb128.u.encode(len(std_bytes)))
         bio.write(std_bytes)
 
         projected_byteorder = projected.dtype.byteorder
@@ -241,7 +241,7 @@ class RPCodec(Codec):
             projected = projected.byteswap()
 
         proj_bytes = projected.tobytes()
-        bio.write(varint.encode(len(proj_bytes)))
+        bio.write(leb128.u.encode(len(proj_bytes)))
         bio.write(proj_bytes)
 
         return bio.getvalue()
@@ -269,25 +269,25 @@ class RPCodec(Codec):
 
         bio = BytesIO(data)
 
-        ndim = varint.decode_stream(bio)
-        original_shape = tuple(varint.decode_stream(bio) for _ in range(ndim))
+        ndim, _ = leb128.u.decode_reader(bio)
+        original_shape = tuple(leb128.u.decode_reader(bio)[0] for _ in range(ndim))
 
-        dtype_len = varint.decode_stream(bio)
+        dtype_len, _ = leb128.u.decode_reader(bio)
         dtype_str = bio.read(dtype_len).decode("ascii")
         original_dtype = np.dtype(dtype_str)
 
-        k = varint.decode_stream(bio)
-        seed = varint.decode_stream(bio)
+        k, _ = leb128.u.decode_reader(bio)
+        seed, _ = leb128.u.decode_reader(bio)
 
-        mean_len = varint.decode_stream(bio)
+        mean_len, _ = leb128.u.decode_reader(bio)
         mean_bytes = bio.read(mean_len)
         data_mean = np.frombuffer(mean_bytes, dtype=original_dtype)
 
-        std_len = varint.decode_stream(bio)
+        std_len, _ = leb128.u.decode_reader(bio)
         std_bytes = bio.read(std_len)
         data_std = np.frombuffer(std_bytes, dtype=original_dtype)
 
-        proj_len = varint.decode_stream(bio)
+        proj_len, _ = leb128.u.decode_reader(bio)
         proj_bytes = bio.read(proj_len)
 
         projected = np.frombuffer(
