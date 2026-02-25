@@ -10,7 +10,6 @@ from contextlib import contextmanager
 from enum import Enum
 from io import BytesIO
 from math import ceil
-from sys import byteorder
 
 import leb128
 import numcodecs.compat
@@ -162,7 +161,7 @@ class RPCodec(Codec):
             - Projected data
             - Compression parameters
         """
-        data = numcodecs.compat.ensure_ndarray(buf)
+        data = np.copy(numcodecs.compat.ensure_ndarray(buf))
 
         validations = [
             not np.issubdtype(data.dtype, np.floating),
@@ -200,7 +199,7 @@ class RPCodec(Codec):
             LOG.debug(f"encode with k={k}")
 
         if k > _BLOCK_THRESHOLD:
-            block_size = _BLOCK_SIZE
+            block_size = max(1, 2**26 // data.shape[1])
             projected = self._project_blocks(
                 standardized_data, data.shape[1], k, original_dtype, block_size
             )
@@ -221,26 +220,17 @@ class RPCodec(Codec):
         bio.write(leb128.u.encode(k))
         bio.write(leb128.u.encode(self._seed))
 
-        mean_bytes = np.array(data_mean, dtype=original_dtype).tobytes()
+        data_mean = np.array(data_mean, dtype=original_dtype)
+        mean_bytes = data_mean.astype(data_mean.dtype.newbyteorder("<")).tobytes()
         bio.write(leb128.u.encode(len(mean_bytes)))
         bio.write(mean_bytes)
 
-        std_bytes = np.array(data_std, dtype=original_dtype).tobytes()
+        data_std = np.array(data_std, dtype=original_dtype)
+        std_bytes = data_std.astype(data_std.dtype.newbyteorder("<")).tobytes()
         bio.write(leb128.u.encode(len(std_bytes)))
         bio.write(std_bytes)
 
-        projected_byteorder = projected.dtype.byteorder
-
-        projected_byteorder = (
-            projected_byteorder
-            if projected_byteorder in ("<", ">")
-            else ("<" if (byteorder == "little") else ">")
-        )
-
-        if projected_byteorder != "<":
-            projected = projected.byteswap()
-
-        proj_bytes = projected.tobytes()
+        proj_bytes = projected.astype(projected.dtype.newbyteorder("<")).tobytes()
         bio.write(leb128.u.encode(len(proj_bytes)))
         bio.write(proj_bytes)
 
@@ -281,32 +271,31 @@ class RPCodec(Codec):
 
         mean_len, _ = leb128.u.decode_reader(bio)
         mean_bytes = bio.read(mean_len)
-        data_mean = np.frombuffer(mean_bytes, dtype=original_dtype)
+        data_mean = np.frombuffer(
+            mean_bytes, dtype=original_dtype.newbyteorder("<"), count=1
+        ).astype(original_dtype)[0]
 
         std_len, _ = leb128.u.decode_reader(bio)
         std_bytes = bio.read(std_len)
-        data_std = np.frombuffer(std_bytes, dtype=original_dtype)
+        data_std = np.frombuffer(
+            std_bytes, dtype=original_dtype.newbyteorder("<"), count=1
+        ).astype(original_dtype)[0]
 
         proj_len, _ = leb128.u.decode_reader(bio)
         proj_bytes = bio.read(proj_len)
 
-        projected = np.frombuffer(
-            proj_bytes, dtype=original_dtype.newbyteorder("<")
-        ).reshape((original_shape[0], k))
-
-        projected_byteorder = projected.dtype.byteorder
-
-        projected_byteorder = (
-            projected_byteorder
-            if projected_byteorder in ("<", ">")
-            else ("<" if (byteorder == "little") else ">")
+        projected = (
+            np.frombuffer(
+                proj_bytes,
+                dtype=original_dtype.newbyteorder("<"),
+                count=(original_shape[0] * k),
+            )
+            .astype(original_dtype)
+            .reshape((original_shape[0], k))
         )
 
-        if byteorder == "big":
-            projected = projected.byteswap()
-
         if k > _BLOCK_THRESHOLD:
-            block_size = _BLOCK_SIZE
+            block_size = max(1, 2**26 // original_shape[1])
             reconstructed = self._reconstruct_blocks(
                 projected, original_shape[1], k, original_dtype, block_size, seed
             )
