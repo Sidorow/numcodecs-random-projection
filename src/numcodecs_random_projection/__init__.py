@@ -15,6 +15,7 @@ import leb128
 import numcodecs.compat
 import numcodecs.registry
 import numpy as np
+import psutil
 import tqdm
 from numcodecs.abc import Codec
 from typing_extensions import (
@@ -27,7 +28,6 @@ from .mt_rng import MultithreadedRNG
 LOG = logging.getLogger(__name__)
 
 _BLOCK_THRESHOLD = 1000
-_BLOCK_SIZE = 512
 
 
 class RPMethod(Enum):
@@ -180,7 +180,11 @@ class RPCodec(Codec):
         if data_std == 0:
             data_std = 1
 
-        standardized_data = (data - data_mean) / data_std
+        # standardized_data = (data - data_mean) / data_std
+
+        data -= data_mean
+        data /= data_std
+        standardized_data = data
 
         original_shape = data.shape
         original_dtype = data.dtype
@@ -199,7 +203,7 @@ class RPCodec(Codec):
             LOG.debug(f"encode with k={k}")
 
         if k > _BLOCK_THRESHOLD:
-            block_size = max(1, 2**26 // data.shape[1])
+            block_size = self._compute_block_size(original_shape[1], original_dtype)
             projected = self._project_blocks(
                 standardized_data, data.shape[1], k, original_dtype, block_size
             )
@@ -295,7 +299,7 @@ class RPCodec(Codec):
         )
 
         if k > _BLOCK_THRESHOLD:
-            block_size = max(1, 2**26 // original_shape[1])
+            block_size = self._compute_block_size(original_shape[1], original_dtype)
             reconstructed = self._reconstruct_blocks(
                 projected, original_shape[1], k, original_dtype, block_size, seed
             )
@@ -510,6 +514,17 @@ class RPCodec(Codec):
 
         return out
 
+    def _compute_block_size(self, D: int, dtype: np.dtype) -> int:
+        available = psutil.virtual_memory().available // 5
+        block_size = max(1, available // (D * dtype.itemsize))
+
+        if self._debug:
+            print(
+                f"Available memory: {available / (1024**2):.2f} MB, block size: {block_size}"
+            )
+
+        return block_size
+
     def _gen_R(
         self, D: int, K: int, dtype: np.dtype, seed: int | None = None
     ) -> np.ndarray:
@@ -547,8 +562,9 @@ class RPCodec(Codec):
             case RPMethod.gaussian:
                 scale = np.sqrt(1 / K)
                 rng = MultithreadedRNG(seed=seed)
-                rng.fill_arr(shape=(D, K))
-                R = rng.values * scale
+                R = np.empty((D, K), dtype=dtype)
+                rng.fill_arr(shape=(D, K), out=R)
+                R *= scale
             case _:
                 assert_never(self._method)
 
@@ -599,8 +615,8 @@ class RPCodec(Codec):
             case RPMethod.gaussian:
                 scale = np.sqrt(1 / K)
                 if hasattr(rng, "fill_arr"):
-                    rng.fill_arr(shape=(D, block_size))
-                    np.multiply(rng.values, scale, out=out)
+                    rng.fill_arr(shape=(D, block_size), out=out)
+                    out *= scale
             case _:
                 assert_never(self._method)
 
