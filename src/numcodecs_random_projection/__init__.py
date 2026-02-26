@@ -15,7 +15,6 @@ import leb128
 import numcodecs.compat
 import numcodecs.registry
 import numpy as np
-import psutil
 import tqdm
 from numcodecs.abc import Codec
 from typing_extensions import (
@@ -26,8 +25,6 @@ from typing_extensions import (
 from .mt_rng import MultithreadedRNG
 
 LOG = logging.getLogger(__name__)
-
-_BLOCK_THRESHOLD = 1000
 
 
 class RPMethod(Enum):
@@ -180,8 +177,6 @@ class RPCodec(Codec):
         if data_std == 0:
             data_std = 1
 
-        # standardized_data = (data - data_mean) / data_std
-
         data -= data_mean
         data /= data_std
         standardized_data = data
@@ -202,8 +197,8 @@ class RPCodec(Codec):
         if self._debug:
             LOG.debug(f"encode with k={k}")
 
-        if k > _BLOCK_THRESHOLD:
-            block_size = self._compute_block_size(original_shape[1], original_dtype)
+        block_size = self._compute_block_size(original_shape[1], original_dtype)
+        if k > block_size * 2:
             projected = self._project_blocks(
                 standardized_data, data.shape[1], k, original_dtype, block_size
             )
@@ -298,8 +293,8 @@ class RPCodec(Codec):
             .reshape((original_shape[0], k))
         )
 
-        if k > _BLOCK_THRESHOLD:
-            block_size = self._compute_block_size(original_shape[1], original_dtype)
+        block_size = self._compute_block_size(original_shape[1], original_dtype)
+        if k > block_size * 2:
             reconstructed = self._reconstruct_blocks(
                 projected, original_shape[1], k, original_dtype, block_size, seed
             )
@@ -515,12 +510,23 @@ class RPCodec(Codec):
         return out
 
     def _compute_block_size(self, D: int, dtype: np.dtype) -> int:
-        available = psutil.virtual_memory().available // 5
+        try:
+            import psutil
+
+            available = psutil.virtual_memory().available // 5
+
+        except ImportError:
+            if self._debug:
+                print(
+                    "Cannot import psutil, using 2 GiB fallback for available memory."
+                )
+            available = 2**31 // 5
+
         block_size = max(1, available // (D * dtype.itemsize))
 
         if self._debug:
             print(
-                f"Available memory: {available / (1024**2):.2f} MB, block size: {block_size}"
+                f"Available memory: {available / (1024**2):.2f} MiB, block size: {block_size}"
             )
 
         return block_size
