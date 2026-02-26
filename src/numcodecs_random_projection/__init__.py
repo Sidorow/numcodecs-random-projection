@@ -198,7 +198,7 @@ class RPCodec(Codec):
             LOG.debug(f"encode with k={k}")
 
         block_size = self._compute_block_size(original_shape[1], original_dtype)
-        if k > block_size * 2:
+        if k > (block_size * 2):
             projected = self._project_blocks(
                 standardized_data, data.shape[1], k, original_dtype, block_size
             )
@@ -294,7 +294,7 @@ class RPCodec(Codec):
         )
 
         block_size = self._compute_block_size(original_shape[1], original_dtype)
-        if k > block_size * 2:
+        if k > (block_size * 2):
             reconstructed = self._reconstruct_blocks(
                 projected, original_shape[1], k, original_dtype, block_size, seed
             )
@@ -513,14 +513,15 @@ class RPCodec(Codec):
         try:
             import psutil
 
-            available = psutil.virtual_memory().available // 5
-
+            available = psutil.virtual_memory().available
         except ImportError:
             if self._debug:
                 print(
                     "Cannot import psutil, using 2 GiB fallback for available memory."
                 )
-            available = 2**31 // 5
+            available = 2**31
+
+        available = available // 5
 
         block_size = max(1, available // (D * dtype.itemsize))
 
