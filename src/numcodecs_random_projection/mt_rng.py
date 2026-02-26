@@ -11,6 +11,8 @@ class MultithreadedRNG:
     Based on https://numpy.org/doc/stable/reference/random/multithreading.html.
     """
 
+    _ROWS_PER_CHUNK = 1024
+
     def __init__(self, seed, threads=None):
         """
         Initialize the multithreaded RNG.
@@ -27,13 +29,13 @@ class MultithreadedRNG:
         self.threads = threads
 
         self.seed_seq = SeedSequence(seed)
-        self.shape = None
         self.values = None
-        self.step = None
 
         self.executor = concurrent.futures.ThreadPoolExecutor(self.threads)
 
-    def fill_arr(self, shape: tuple[int, int]) -> np.ndarray:
+    def fill_arr(
+        self, shape: tuple[int, int], out: np.ndarray | None = None
+    ) -> np.ndarray:
         """
         Fill an array of given shape with random numbers in parallel using threads.
 
@@ -53,12 +55,16 @@ class MultithreadedRNG:
         if isinstance(shape, int):
             shape = (shape,)
         self.shape = tuple(shape)
-        self.values = np.empty(self.shape)
+
+        if out is not None:
+            self.values = out
+        else:
+            self.values = np.empty(self.shape)
+
         n_rows = self.values.shape[0]
 
-        rows_per_chunk = shape[1]
-        n_chunks = max(1, int(np.ceil(n_rows / rows_per_chunk)))
-        chunk_step = int(np.ceil(n_rows / n_chunks))
+        chunk_step = self._ROWS_PER_CHUNK
+        n_chunks = max(1, int(np.ceil(n_rows / chunk_step)))
 
         child_seeds = self.seed_seq.spawn(n_chunks)
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "numcodecs-random-projection"
-version = "0.1.0a1"
+version = "0.1.0a2"
 dependencies = [
     "leb128~=1.0.8",
     "numcodecs>=0.13.0,<0.17",
@@ -12,6 +12,8 @@ dependencies = [
     "typing-extensions~=4.6",
     "tqdm~=4.60",
     "types-tqdm~=4.60",
+    "psutil~=7.2.2;sys_platform !='emscripten'",
+    "types-psutil~=7.2.2.20260130",
 ]
 requires-python = ">=3.10"
 authors = [{ name = "Sami Sidoroff", email = "sami.sidoroff@helsinki.fi" }, { name = "Juniper Tyree", email = "juniper.tyree@helsinki.fi" }]

@@ -10,7 +10,6 @@ from contextlib import contextmanager
 from enum import Enum
 from io import BytesIO
 from math import ceil
-from sys import byteorder
 
 import leb128
 import numcodecs.compat
@@ -26,9 +25,6 @@ from typing_extensions import (
 from .mt_rng import MultithreadedRNG
 
 LOG = logging.getLogger(__name__)
-
-_BLOCK_THRESHOLD = 1000
-_BLOCK_SIZE = 512
 
 
 class RPMethod(Enum):
@@ -162,7 +158,7 @@ class RPCodec(Codec):
             - Projected data
             - Compression parameters
         """
-        data = numcodecs.compat.ensure_ndarray(buf)
+        data = np.copy(numcodecs.compat.ensure_ndarray(buf))
 
         validations = [
             not np.issubdtype(data.dtype, np.floating),
@@ -181,7 +177,9 @@ class RPCodec(Codec):
         if data_std == 0:
             data_std = 1
 
-        standardized_data = (data - data_mean) / data_std
+        data -= data_mean
+        data /= data_std
+        standardized_data = data
 
         original_shape = data.shape
         original_dtype = data.dtype
@@ -199,8 +197,8 @@ class RPCodec(Codec):
         if self._debug:
             LOG.debug(f"encode with k={k}")
 
-        if k > _BLOCK_THRESHOLD:
-            block_size = _BLOCK_SIZE
+        block_size = self._compute_block_size(original_shape[1], original_dtype)
+        if k > (block_size * 2):
             projected = self._project_blocks(
                 standardized_data, data.shape[1], k, original_dtype, block_size
             )
@@ -221,26 +219,17 @@ class RPCodec(Codec):
         bio.write(leb128.u.encode(k))
         bio.write(leb128.u.encode(self._seed))
 
-        mean_bytes = np.array(data_mean, dtype=original_dtype).tobytes()
+        data_mean = np.array(data_mean, dtype=original_dtype)
+        mean_bytes = data_mean.astype(data_mean.dtype.newbyteorder("<")).tobytes()
         bio.write(leb128.u.encode(len(mean_bytes)))
         bio.write(mean_bytes)
 
-        std_bytes = np.array(data_std, dtype=original_dtype).tobytes()
+        data_std = np.array(data_std, dtype=original_dtype)
+        std_bytes = data_std.astype(data_std.dtype.newbyteorder("<")).tobytes()
         bio.write(leb128.u.encode(len(std_bytes)))
         bio.write(std_bytes)
 
-        projected_byteorder = projected.dtype.byteorder
-
-        projected_byteorder = (
-            projected_byteorder
-            if projected_byteorder in ("<", ">")
-            else ("<" if (byteorder == "little") else ">")
-        )
-
-        if projected_byteorder != "<":
-            projected = projected.byteswap()
-
-        proj_bytes = projected.tobytes()
+        proj_bytes = projected.astype(projected.dtype.newbyteorder("<")).tobytes()
         bio.write(leb128.u.encode(len(proj_bytes)))
         bio.write(proj_bytes)
 
@@ -281,32 +270,31 @@ class RPCodec(Codec):
 
         mean_len, _ = leb128.u.decode_reader(bio)
         mean_bytes = bio.read(mean_len)
-        data_mean = np.frombuffer(mean_bytes, dtype=original_dtype)
+        data_mean = np.frombuffer(
+            mean_bytes, dtype=original_dtype.newbyteorder("<"), count=1
+        ).astype(original_dtype)[0]
 
         std_len, _ = leb128.u.decode_reader(bio)
         std_bytes = bio.read(std_len)
-        data_std = np.frombuffer(std_bytes, dtype=original_dtype)
+        data_std = np.frombuffer(
+            std_bytes, dtype=original_dtype.newbyteorder("<"), count=1
+        ).astype(original_dtype)[0]
 
         proj_len, _ = leb128.u.decode_reader(bio)
         proj_bytes = bio.read(proj_len)
 
-        projected = np.frombuffer(
-            proj_bytes, dtype=original_dtype.newbyteorder("<")
-        ).reshape((original_shape[0], k))
-
-        projected_byteorder = projected.dtype.byteorder
-
-        projected_byteorder = (
-            projected_byteorder
-            if projected_byteorder in ("<", ">")
-            else ("<" if (byteorder == "little") else ">")
+        projected = (
+            np.frombuffer(
+                proj_bytes,
+                dtype=original_dtype.newbyteorder("<"),
+                count=(original_shape[0] * k),
+            )
+            .astype(original_dtype)
+            .reshape((original_shape[0], k))
         )
 
-        if byteorder == "big":
-            projected = projected.byteswap()
-
-        if k > _BLOCK_THRESHOLD:
-            block_size = _BLOCK_SIZE
+        block_size = self._compute_block_size(original_shape[1], original_dtype)
+        if k > (block_size * 2):
             reconstructed = self._reconstruct_blocks(
                 projected, original_shape[1], k, original_dtype, block_size, seed
             )
@@ -521,6 +509,29 @@ class RPCodec(Codec):
 
         return out
 
+    def _compute_block_size(self, D: int, dtype: np.dtype) -> int:
+        try:
+            import psutil
+
+            available = psutil.virtual_memory().available
+        except ImportError:
+            if self._debug:
+                print(
+                    "Cannot import psutil, using 2 GiB fallback for available memory."
+                )
+            available = 2**31
+
+        available = available // 5
+
+        block_size = max(1, available // (D * dtype.itemsize))
+
+        if self._debug:
+            print(
+                f"Available memory: {available / (1024**2):.2f} MiB, block size: {block_size}"
+            )
+
+        return block_size
+
     def _gen_R(
         self, D: int, K: int, dtype: np.dtype, seed: int | None = None
     ) -> np.ndarray:
@@ -558,8 +569,9 @@ class RPCodec(Codec):
             case RPMethod.gaussian:
                 scale = np.sqrt(1 / K)
                 rng = MultithreadedRNG(seed=seed)
-                rng.fill_arr(shape=(D, K))
-                R = rng.values * scale
+                R = np.empty((D, K), dtype=dtype)
+                rng.fill_arr(shape=(D, K), out=R)
+                R *= scale
             case _:
                 assert_never(self._method)
 
@@ -610,8 +622,8 @@ class RPCodec(Codec):
             case RPMethod.gaussian:
                 scale = np.sqrt(1 / K)
                 if hasattr(rng, "fill_arr"):
-                    rng.fill_arr(shape=(D, block_size))
-                    np.multiply(rng.values, scale, out=out)
+                    rng.fill_arr(shape=(D, block_size), out=out)
+                    out *= scale
             case _:
                 assert_never(self._method)
 
