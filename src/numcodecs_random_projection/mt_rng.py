@@ -13,7 +13,7 @@ class MultithreadedRNG:
 
     _ROWS_PER_CHUNK = 1024
 
-    def __init__(self, seed, threads=None):
+    def __init__(self, seed: int, threads: None | int = None):
         """
         Initialize the multithreaded RNG.
 
@@ -29,12 +29,11 @@ class MultithreadedRNG:
         self.threads = threads
 
         self.seed_seq = SeedSequence(seed)
-        self.values = None
 
         self.executor = concurrent.futures.ThreadPoolExecutor(self.threads)
 
     def fill_arr(
-        self, shape: tuple[int, int], out: np.ndarray | None = None
+        self, shape: tuple[int, ...], out: np.ndarray | None = None
     ) -> np.ndarray:
         """
         Fill an array of given shape with random numbers in parallel using threads.
@@ -57,11 +56,11 @@ class MultithreadedRNG:
         self.shape = tuple(shape)
 
         if out is not None:
-            self.values = out
+            values = out
         else:
-            self.values = np.empty(self.shape)
+            values = np.empty(self.shape)
 
-        n_rows = self.values.shape[0]
+        n_rows = values.shape[0]
 
         chunk_step = self._ROWS_PER_CHUNK
         n_chunks = max(1, int(np.ceil(n_rows / chunk_step)))
@@ -82,13 +81,13 @@ class MultithreadedRNG:
             view[...] = rng.standard_normal(view.shape)
 
         futures = [
-            self.executor.submit(_fill_chunk, idx, self.values, first, last)
+            self.executor.submit(_fill_chunk, idx, values, first, last)
             for idx, first, last in chunks
         ]
 
         concurrent.futures.wait(futures)
 
-        return self.values
+        return values
 
     def __del__(self):
         self.executor.shutdown(False)

@@ -48,44 +48,36 @@ def check_roundtrip(data: np.ndarray):
 
 def test_roundtrip():
     # Test with a small dataset
-    data = np.copy(TEST_DATA)
-    check_roundtrip(data)
+    check_roundtrip(TEST_DATA)
 
 
 def test_roundtrip_blocks():
     # Test with a small dataset using blocks
-    data = np.copy(TEST_DATA)
-    codec_dct = numcodecs.registry.get_codec(dict(id="rp", method="dct", k=20))
+    data = TEST_DATA
+    codec_dct = numcodecs.registry.get_codec(
+        dict(
+            id="rp",
+            method="dct",
+            k=20,
+            # force block_size=10
+            max_block_memory=data.shape[1] * data.itemsize * 10,
+        )
+    )
     codec_gaussian = numcodecs.registry.get_codec(
-        dict(id="rp", method="gaussian", k=20)
+        dict(
+            id="rp",
+            method="gaussian",
+            k=20,
+            # force block_size=10
+            max_block_memory=data.shape[1] * data.itemsize * 10,
+        )
     )
 
-    # Force block usage by calling the block methods directly
-    projected_dct = codec_dct._project_blocks(
-        data, data.shape[1], 20, data.dtype, block_size=10
-    )
+    projected_dct = codec_dct.encode(data)
+    reconstructed_dct = codec_dct.decode(projected_dct)
 
-    projected_gaussian = codec_gaussian._project_blocks(
-        data, data.shape[1], 20, data.dtype, block_size=10
-    )
-
-    reconstructed_dct = codec_dct._reconstruct_blocks(
-        projected_dct,
-        data.shape[1],
-        20,
-        data.dtype,
-        block_size=10,
-        seed=codec_dct._seed,
-    )
-
-    reconstructed_gaussian = codec_gaussian._reconstruct_blocks(
-        projected_gaussian,
-        data.shape[1],
-        20,
-        data.dtype,
-        block_size=10,
-        seed=codec_gaussian._seed,
-    )
+    projected_gaussian = codec_gaussian.encode(data)
+    reconstructed_gaussian = codec_gaussian.decode(projected_gaussian)
 
     assert reconstructed_dct.shape == data.shape
     assert reconstructed_dct.dtype == data.dtype
@@ -95,24 +87,24 @@ def test_roundtrip_blocks():
 
 
 def test_seed():
-    # Test that same seed produces same results
-    data = np.copy(TEST_DATA)
+    # Test that same seed and block memory produces same results
+    data = TEST_DATA
 
     codec1 = numcodecs.registry.get_codec(
-        dict(id="rp", method="gaussian", cr=10.0, seed=42)
+        dict(id="rp", method="gaussian", cr=10.0, seed=42, max_block_memory=2**26)
     )
     codec2 = numcodecs.registry.get_codec(
-        dict(id="rp", method="gaussian", cr=10.0, seed=42)
+        dict(id="rp", method="gaussian", cr=10.0, seed=42, max_block_memory=2**26)
     )
 
-    encoded1 = codec1.encode(data.copy())
-    encoded2 = codec2.encode(data.copy())
+    encoded1 = codec1.encode(data)
+    encoded2 = codec2.encode(data)
 
     assert encoded1 == encoded2
 
     codec3 = numcodecs.registry.get_codec(dict(id="rp", cr=10.0, seed=43))
 
-    encoded3 = codec3.encode(data.copy())
+    encoded3 = codec3.encode(data)
 
     assert encoded1 != encoded3
 
@@ -120,42 +112,49 @@ def test_seed():
 def test_seed_blocks():
     # Test that block methods produce same results for Gaussian method with same seed
     # Different seeds should produce different results
-    codec1 = numcodecs.registry.get_codec(
-        dict(id="rp", method="gaussian", cr=10.0, seed=42)
-    )
-    codec2 = numcodecs.registry.get_codec(
-        dict(id="rp", method="gaussian", cr=10.0, seed=42)
-    )
-    codec3 = numcodecs.registry.get_codec(
-        dict(id="rp", method="gaussian", cr=10.0, seed=43)
-    )
-
     data = np.random.randn(100, 50).astype(np.float64)
 
-    projected_blocks1 = codec1._project_blocks(
-        np.copy(data), 50, 10, data.dtype, block_size=5
+    codec1 = numcodecs.registry.get_codec(
+        dict(
+            id="rp",
+            method="gaussian",
+            cr=10.0,
+            seed=42,
+            # force block_size=5
+            max_block_memory=data.shape[1] * data.itemsize * 5,
+        )
     )
-    projected_blocks2 = codec2._project_blocks(
-        np.copy(data), 50, 10, data.dtype, block_size=5
+    codec2 = numcodecs.registry.get_codec(
+        dict(
+            id="rp",
+            method="gaussian",
+            cr=10.0,
+            seed=42,
+            # force block_size=5
+            max_block_memory=data.shape[1] * data.itemsize * 5,
+        )
     )
-    projected_blocks3 = codec3._project_blocks(
-        np.copy(data), 50, 10, data.dtype, block_size=5
+    codec3 = numcodecs.registry.get_codec(
+        dict(
+            id="rp",
+            method="gaussian",
+            cr=10.0,
+            seed=43,
+            # force block_size=5
+            max_block_memory=data.shape[1] * data.itemsize * 5,
+        )
     )
+
+    projected_blocks1 = codec1.encode(data)
+    projected_blocks2 = codec2.encode(data)
+    projected_blocks3 = codec3.encode(data)
 
     assert np.array_equal(projected_blocks1, projected_blocks2)
     assert not np.array_equal(projected_blocks1, projected_blocks3)
 
-    reconstructed_blocks1 = codec1._reconstruct_blocks(
-        projected_blocks1, 50, 10, data.dtype, block_size=5, seed=codec1._seed
-    )
-
-    reconstructed_blocks2 = codec2._reconstruct_blocks(
-        projected_blocks2, 50, 10, data.dtype, block_size=5, seed=codec2._seed
-    )
-
-    reconstructed_blocks3 = codec3._reconstruct_blocks(
-        projected_blocks3, 50, 10, data.dtype, block_size=5, seed=codec3._seed
-    )
+    reconstructed_blocks1 = codec1.decode(projected_blocks1)
+    reconstructed_blocks2 = codec1.decode(projected_blocks2)
+    reconstructed_blocks3 = codec1.decode(projected_blocks3)
 
     assert np.array_equal(reconstructed_blocks1, reconstructed_blocks2)
     assert not np.array_equal(reconstructed_blocks1, reconstructed_blocks3)
@@ -196,20 +195,16 @@ def test_multithreaded_rng_thread_count_invariance():
     shape = (2000, 100)
 
     rng_1t = MultithreadedRNG(seed=seed, threads=1)
-    rng_1t.fill_arr(shape)
-    result_1t = rng_1t.values.copy()
+    result_1t = rng_1t.fill_arr(shape)
 
     rng_2t = MultithreadedRNG(seed=seed, threads=2)
-    rng_2t.fill_arr(shape)
-    result_2t = rng_2t.values.copy()
+    result_2t = rng_2t.fill_arr(shape)
 
     rng_4t = MultithreadedRNG(seed=seed, threads=4)
-    rng_4t.fill_arr(shape)
-    result_4t = rng_4t.values.copy()
+    result_4t = rng_4t.fill_arr(shape)
 
     rng_8t = MultithreadedRNG(seed=seed, threads=8)
-    rng_8t.fill_arr(shape)
-    result_8t = rng_8t.values.copy()
+    result_8t = rng_8t.fill_arr(shape)
 
     np.testing.assert_array_equal(
         result_1t, result_2t, err_msg="1-thread vs 2-thread RNG output mismatch"
@@ -225,23 +220,26 @@ def test_multithreaded_rng_thread_count_invariance():
 def test_block_vs_full_matrix_dct():
     # Test that block and full matrix methods produce same results for DCT method
     # Both methods should produce (numerically) identical results for the same data in float64
-    codec = numcodecs.registry.get_codec(dict(id="rp", method="dct", cr=5.0))
-
     data = np.random.randn(100, 50).astype(np.float64)
 
-    projected_blocks = codec._project_blocks(data, 50, 10, data.dtype, block_size=5)
-
-    full_R = codec._gen_R(50, 10, data.dtype)
-    projected_full = np.matmul(data, full_R)
-
-    np.testing.assert_allclose(projected_blocks, projected_full, atol=1e-15)
-    assert projected_blocks.shape == (100, 10) and projected_full.shape == (100, 10)
-
-    reconstructed_blocks = codec._reconstruct_blocks(
-        projected_blocks, 50, 10, data.dtype, block_size=5, seed=codec._seed
+    full_codec = numcodecs.registry.get_codec(
+        dict(id="rp", method="dct", cr=5.0, max_block_memory=-1)
+    )
+    block_codec = numcodecs.registry.get_codec(
+        dict(
+            id="rp",
+            method="dct",
+            cr=5.0,
+            # force block_size=5
+            max_block_memory=data.shape[1] * data.itemsize * 5,
+        )
     )
 
-    reconstructed_full = np.matmul(projected_blocks, full_R.T)
+    projected_full = full_codec.encode(data)
+    projected_blocks = block_codec.encode(data)
+
+    reconstructed_full = full_codec.decode(projected_full)
+    reconstructed_blocks = block_codec.decode(projected_blocks)
 
     np.testing.assert_allclose(reconstructed_blocks, reconstructed_full, atol=1e-15)
     assert reconstructed_blocks.shape == (100, 50) and reconstructed_full.shape == (
@@ -293,7 +291,7 @@ def test_robustness():
     codec1 = numcodecs.registry.get_codec(dict(id="rp", cr=9.5))
     codec2 = numcodecs.registry.get_codec(dict(id="rp", cr=10))
 
-    data = np.copy(TEST_DATA)
+    data = TEST_DATA
 
     # Create NaN and Inf data
     nan_data = np.copy(data)
