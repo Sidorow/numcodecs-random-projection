@@ -68,7 +68,8 @@ class RPCodec(Codec):
     _cr: None | float
     _k: None | int
     _method: RPMethod
-    _seed: int
+    _seed: None | int
+    _max_block_memory: None | int
     _debug: bool
 
     codec_id: str = "rp"  # type: ignore
@@ -79,7 +80,8 @@ class RPCodec(Codec):
         cr: None | float = None,
         k: None | int = None,
         method: str | RPMethod = RPMethod.dct,
-        seed: int | None = None,
+        seed: None | int = None,
+        max_block_memory: None | int = None,
         debug: bool = False,
     ) -> None:
         """
@@ -87,23 +89,29 @@ class RPCodec(Codec):
 
         Parameters
         ----------
-        mae : float
+        mae : None | float
             Target mean absolute error. If specified, `k` will be estimated from
             data during encoding. Note that the bound is *not* guaranteed to be
             met.
-        cr : float
+        cr : None | float
             Target compression ratio. If specified, `k` will be calculated as D/`cr`
             where D is the number of features in the input data.
-        k : int
+        k : None | int
             Number of dimensions in the projected space. Will be used over `cr` if
             both are specified. Estimated if `mae` is specified.
         method : str | RPMethod
             Method for generating the projection matrix. Please refer to the
             [`RPMethod`][numcodecs_random_projection.RPMethod] enumeration for
             all supported methods.
-        seed : int
-            Random seed for reproducible results. If None, results will be
-            non-deterministic when using the Gaussian method.
+        seed : None | int
+            Random seed for reproducible results. If [`None`], the seed is
+            determined non-deterministically at encoding time.
+        max_block_memory : None | int
+            Maximum non-negative amount of memory, in bytes, that a projection
+            matrix block should not exceed. If small or zero, the blocks will
+            be as small as possible. If `-1`, the projection matrix is produced
+            in one block, no matter how large. If `None`, the available amount
+            of memory is determined non-deterministically at encoding time.
         debug : bool
             Whether debug information should be printed during encoding and
             decoding.
@@ -129,14 +137,15 @@ class RPCodec(Codec):
                 f"unknown method '{method}', expected one of {', '.join(f'{hy}{m.name}{hy}' for m in RPMethod)}."
             )
 
-        if seed is None:
-            self._seed = np.random.randint(0, 2**31 - 1)
-        else:
-            self._seed = seed
+        self._seed = seed
+
+        if (max_block_memory is not None) and (max_block_memory < -1):
+            raise ValueError("max_block_memory should be non-negative or -1")
+        self._max_block_memory = max_block_memory
 
         self._debug = debug
 
-    def encode(self, buf: Buffer) -> Buffer:
+    def encode(self, buf: Buffer) -> Buffer:  # type: ignore
         """
         Encode data using random projection.
 
@@ -194,16 +203,35 @@ class RPCodec(Codec):
             assert self._k is not None
             k = self._k
 
-        if self._debug:
-            LOG.debug(f"encode with k={k}")
+        if self._seed is None:
+            if self._method == RPMethod.dct:
+                # no random seed is needed, keep the output fully reproducible
+                seed = 0
+            else:
+                seed = np.random.randint(0, 2**31 - 1)
+        else:
+            seed = self._seed
 
-        block_size = self._compute_block_size(original_shape[1], original_dtype)
+        if self._max_block_memory is None:
+            block_size = self._compute_block_size(
+                original_shape[1], original_dtype, max_memory=None
+            )
+        elif self._max_block_memory == -1:
+            block_size = k
+        else:
+            block_size = self._compute_block_size(
+                original_shape[1], original_dtype, max_memory=self._max_block_memory
+            )
+
+        if self._debug:
+            LOG.debug(f"encode with k={k} and block_size={block_size}")
+
         if k > (block_size * 2):
             projected = self._project_blocks(
-                standardized_data, data.shape[1], k, original_dtype, block_size
+                standardized_data, data.shape[1], k, original_dtype, seed, block_size
             )
         else:
-            R = self._gen_R(data.shape[1], k, original_dtype, self._seed)
+            R = self._gen_R(data.shape[1], k, original_dtype, seed)
             projected = np.matmul(standardized_data, R)
 
         bio = BytesIO()
@@ -217,7 +245,8 @@ class RPCodec(Codec):
         bio.write(dtype_str)
 
         bio.write(leb128.u.encode(k))
-        bio.write(leb128.u.encode(self._seed))
+        bio.write(leb128.u.encode(block_size))
+        bio.write(leb128.u.encode(seed))
 
         data_mean = np.array(data_mean, dtype=original_dtype)
         mean_bytes = data_mean.astype(data_mean.dtype.newbyteorder("<")).tobytes()
@@ -235,7 +264,7 @@ class RPCodec(Codec):
 
         return bio.getvalue()
 
-    def decode(self, buf: Buffer, out: None | Buffer = None) -> Buffer:
+    def decode(self, buf: Buffer, out: None | Buffer = None) -> Buffer:  # type: ignore
         """
         Decode random projection encoded data.
 
@@ -266,6 +295,7 @@ class RPCodec(Codec):
         original_dtype = np.dtype(dtype_str)
 
         k, _ = leb128.u.decode_reader(bio)
+        block_size, _ = leb128.u.decode_reader(bio)
         seed, _ = leb128.u.decode_reader(bio)
 
         mean_len, _ = leb128.u.decode_reader(bio)
@@ -293,7 +323,6 @@ class RPCodec(Codec):
             .reshape((original_shape[0], k))
         )
 
-        block_size = self._compute_block_size(original_shape[1], original_dtype)
         if k > (block_size * 2):
             reconstructed = self._reconstruct_blocks(
                 projected, original_shape[1], k, original_dtype, block_size, seed
@@ -313,7 +342,7 @@ class RPCodec(Codec):
         Returns:
             dict: Codec configuration.
         """
-        config: dict[str, str | int | float] = dict(id=type(self).codec_id)
+        config: dict[str, str | int | float | bool] = dict(id=type(self).codec_id)
 
         if self._mae is not None:
             config["mae"] = self._mae
@@ -323,7 +352,12 @@ class RPCodec(Codec):
             config["k"] = self._k
 
         config["method"] = self._method.name
-        config["seed"] = self._seed
+
+        if self._seed is not None:
+            config["seed"] = self._seed
+        if self._max_block_memory is not None:
+            config["max_block_memory"] = self._max_block_memory
+        config["debug"] = self._debug
 
         return config
 
@@ -368,7 +402,13 @@ class RPCodec(Codec):
         return K
 
     def _project_blocks(
-        self, data: np.ndarray, D: int, K: int, dtype: np.dtype, block_size: int
+        self,
+        data: np.ndarray,
+        D: int,
+        K: int,
+        dtype: np.dtype,
+        seed: int,
+        block_size: int,
     ) -> np.ndarray:
         """
         Project input data to a lower-dimensional subspace using block-wise matrix generation.
@@ -388,6 +428,8 @@ class RPCodec(Codec):
         dtype : np.dtype
             Data type for the projection matrix and output. Should match the
             original data dtype for consistency.
+        seed : int
+            Random seed of reproducible matrix generation.
         block_size : int
             Number of features to process in each block. Determines the
             size of each R_block as (D, block_size).
@@ -398,7 +440,7 @@ class RPCodec(Codec):
             Projected data with shape (N, K)
         """
 
-        rng = MultithreadedRNG(seed=self._seed)
+        rng = MultithreadedRNG(seed=seed)
 
         out = np.empty((data.shape[0], K), dtype=dtype)
         R_block = None
@@ -406,6 +448,8 @@ class RPCodec(Codec):
 
         if self._debug:
             progress = tqdm.tqdm(total=K)
+        else:
+            progress = None
 
         for k_start in range(0, K, block_size):
             k_end = min(k_start + block_size, K)
@@ -429,7 +473,7 @@ class RPCodec(Codec):
                 np.matmul(data, R_block, out=out_block)
                 out[:, k_start:k_end] = out_block
 
-            if self._debug:
+            if progress is not None:
                 progress.set_postfix_str(
                     f"encode N={data.shape[0]} D={D} Kb={actual_block_size} Rgen={np.round(block_timing[0], 2)}s matmul={np.round(matmul_timing[0], 2)}s"
                 )
@@ -463,6 +507,8 @@ class RPCodec(Codec):
         dtype : np.dtype
             Data type for the reconstructed matrix. Should match the
             original data dtype for consistency.
+        seed : int
+            Random seed of reproducible matrix generation.
         block_size : int
             Number of features to process in each block.
 
@@ -480,6 +526,8 @@ class RPCodec(Codec):
 
         if self._debug:
             progress = tqdm.tqdm(total=K)
+        else:
+            progress = None
 
         for k_start in range(0, K, block_size):
             k_end = min(k_start + block_size, K)
@@ -501,7 +549,7 @@ class RPCodec(Codec):
             with self._debug_timing(acc_timing):
                 out += rec_block
 
-            if self._debug:
+            if progress is not None:
                 progress.set_postfix_str(
                     f"decode N={out.shape[0]} D={D} Kb={actual_block_size} Rgen={np.round(block_timing[0], 2)}s matmul={np.round(matmul_timing[0], 2)}s acc={np.round(acc_timing[0], 2)}s"
                 )
@@ -509,19 +557,24 @@ class RPCodec(Codec):
 
         return out
 
-    def _compute_block_size(self, D: int, dtype: np.dtype) -> int:
-        try:
-            import psutil
+    def _compute_block_size(
+        self, D: int, dtype: np.dtype, max_memory: None | int
+    ) -> int:
+        if max_memory is None:
+            try:
+                import psutil
 
-            available = psutil.virtual_memory().available
-        except ImportError:
-            if self._debug:
-                print(
-                    "Cannot import psutil, using 2 GiB fallback for available memory."
-                )
-            available = 2**31
+                available = psutil.virtual_memory().available
+            except ImportError:
+                if self._debug:
+                    print(
+                        "Cannot import psutil, using 2 GiB fallback for available memory."
+                    )
+                available = 2**31
 
-        available = available // 5
+            available = available // 5
+        else:
+            available = max_memory
 
         block_size = max(1, available // (D * dtype.itemsize))
 
@@ -532,9 +585,7 @@ class RPCodec(Codec):
 
         return block_size
 
-    def _gen_R(
-        self, D: int, K: int, dtype: np.dtype, seed: int | None = None
-    ) -> np.ndarray:
+    def _gen_R(self, D: int, K: int, dtype: np.dtype, seed: int) -> np.ndarray:
         """
         Generate a projection matrix using specified method.
 
@@ -551,7 +602,7 @@ class RPCodec(Codec):
             Input dimensionality (number of features).
         K : int
             Output dimensionality (number of projected features).
-        seed : int, optional
+        seed : int
             Random seed of reproducible matrix generation.
 
         Returns
