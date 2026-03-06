@@ -149,7 +149,7 @@ class RPCodec(Codec):
             in one block, no matter how large. If `None`, the available amount
             of memory is determined non-deterministically at encoding time.
         debug : bool
-            Whether debug information should be printed during encoding and
+            Whether debug information should be logged during encoding and
             decoding.
 
         Raises
@@ -241,6 +241,11 @@ class RPCodec(Codec):
         D: int = reduce(lambda acc, ib: acc * shape[ib], ibs, 1)
         # transpose the shape to (...N, ...D) and reshape to (N, D)
         data = np.transpose(data, axes=(*ias, *ibs)).reshape(N, D)
+
+        if self._debug:
+            LOG.debug(
+                f"reshaped {shape} into N={tuple(shape[ia] for ia in ias)}={N} x D={tuple(shape[ib] for ib in ibs)}={D} with {ias},{ibs}"
+            )
 
         standardised_matrix: np.ndarray[tuple[int, int], np.dtype[np.floating]] = data
 
@@ -653,7 +658,7 @@ class RPCodec(Codec):
                 available = psutil.virtual_memory().available
             except ImportError:
                 if self._debug:
-                    print(
+                    LOG.warning(
                         "Cannot import psutil, using 2 GiB fallback for available memory."
                     )
                 available = 2**31
@@ -665,7 +670,7 @@ class RPCodec(Codec):
         block_size = max(1, available // (D * dtype.itemsize))
 
         if self._debug:
-            print(
+            LOG.debug(
                 f"Available memory: {available / (1024**2):.2f} MiB, block size: {block_size}"
             )
 
@@ -790,7 +795,7 @@ class RPCodec(Codec):
         # memoisation dictionary
         P: dict[float, dict[float, tuple[int, ...]]] = {-1: {0: ()}}
 
-        for i, x in enumerate(shape):
+        for i, x in enumerate(log_shape):
             P[i] = {}
             for j in P[i - 1].keys():
                 P[i][j] = P[i - 1][j]
