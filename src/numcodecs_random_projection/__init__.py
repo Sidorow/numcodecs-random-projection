@@ -95,8 +95,8 @@ class RPCodec(Codec):
     - 2D array of shape NxD -> NxD
     - >2D arrays: the dimensions are automatically partitioned into two subsets
       ...N and ...D that balance the product dimensions NxD; to use a different
-      partitioning, you need to manually transpose and reshape into 2D before
-      encoding with this codec
+      partitioning, you need to manually transpose and reshape the data into 2D
+      before encoding it with this codec
     """
 
     __slots__ = ("_mae", "_cr", "_k", "_method", "_seed", "_debug")
@@ -413,7 +413,7 @@ class RPCodec(Codec):
                 tuple(shape[ia] for ia in ias) + tuple(shape[ib] for ib in ibs)
             )
         )
-        # undo the axis tranpose to get from (...N, ...D) to shape
+        # undo the axis transpose to get from (...N, ...D) to shape
         iabs = (*ias, *ibs)
         iabs_inv = tuple(np.argsort(iabs))
         assert [iabs[i] for i in iabs_inv] == list(range(len(shape)))
