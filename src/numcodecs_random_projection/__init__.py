@@ -20,8 +20,8 @@ import numpy as np
 import tqdm
 from numcodecs.abc import Codec
 from typing_extensions import (
-    Buffer,
-    Unpack,  # MSPV 3.12
+    Buffer,  # MSPV 3.12
+    Unpack,  # MSPV 3.11
     assert_never,  # MSPV 3.11
 )
 
@@ -420,8 +420,6 @@ class RPCodec(Codec):
         reconstructed_ = np.transpose(reconstructed_, axes=iabs_inv)
 
         assert reconstructed_.shape == shape
-
-        reconstructed_ = reconstructed_.reshape(shape)
 
         return numcodecs.compat.ndarray_copy(reconstructed_, out)  # type: ignore
 
