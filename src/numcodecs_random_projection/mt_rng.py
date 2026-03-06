@@ -2,14 +2,19 @@ import concurrent.futures
 import multiprocessing
 
 import numpy as np
-from numpy.random import SeedSequence, default_rng
+from numpy.random import PCG64, Generator, SeedSequence
 
 
 class MultithreadedRNG:
     """
-    Multithreaded random number generator using numpy's default_rng
+    Multithreaded random number generator using numpy's PCG64 generator
     Based on https://numpy.org/doc/stable/reference/random/multithreading.html.
     """
+
+    __slots__ = ("_threads", "_seed_seq", "_executor")
+    _threads: int
+    _seed_seq: SeedSequence
+    _executor: None | concurrent.futures.ThreadPoolExecutor
 
     _ROWS_PER_CHUNK = 1024
 
@@ -26,46 +31,37 @@ class MultithreadedRNG:
         """
         if threads is None:
             threads = multiprocessing.cpu_count()
-        self.threads = threads
+        self._threads = threads
 
-        self.seed_seq = SeedSequence(seed)
+        self._seed_seq = SeedSequence(seed)
 
-        self.executor = concurrent.futures.ThreadPoolExecutor(self.threads)
+        # only offload if there is more than one thread
+        self._executor = (
+            None
+            if threads == 1
+            else concurrent.futures.ThreadPoolExecutor(self._threads)
+        )
 
     def fill_arr(
-        self, shape: tuple[int, ...], out: np.ndarray | None = None
-    ) -> np.ndarray:
+        self, *, out: np.ndarray[tuple[int, int], np.dtype[np.floating]]
+    ) -> None:
         """
-        Fill an array of given shape with random numbers in parallel using threads.
+        Fill a 2D array with random numbers in parallel using threads.
 
         The number of RNG chunks is determined by the shape,
         so results are reproducible regardless of the number of threads used.
 
         Parameters
         ----------
-        shape : tuple[int]
-            The shape of the array to fill.
-
-        Returns
-        -------
-        np.ndarray
-            The filled array with random floating-point numbers.
+        out : np.ndarray[tuple[int, int], np.dtype[np.floating]]
+            The 2D array to fill.
         """
-        if isinstance(shape, int):
-            shape = (shape,)
-        self.shape = tuple(shape)
-
-        if out is not None:
-            values = out
-        else:
-            values = np.empty(self.shape)
-
-        n_rows = values.shape[0]
+        n_rows, _n_cols = out.shape
 
         chunk_step = self._ROWS_PER_CHUNK
         n_chunks = max(1, int(np.ceil(n_rows / chunk_step)))
 
-        child_seeds = self.seed_seq.spawn(n_chunks)
+        child_seeds = self._seed_seq.spawn(n_chunks)
 
         chunks = []
         for i in range(n_chunks):
@@ -75,19 +71,20 @@ class MultithreadedRNG:
                 break
             chunks.append((i, first, last))
 
-        def _fill_chunk(chunk_idx, out, first, last):
-            rng = default_rng(child_seeds[chunk_idx])
+        def _fill_chunk(seed, out, first, last):
+            rng = Generator(PCG64(seed))
             view = out[first:last]
             view[...] = rng.standard_normal(view.shape)
 
-        futures = [
-            self.executor.submit(_fill_chunk, idx, values, first, last)
-            for idx, first, last in chunks
-        ]
-
-        concurrent.futures.wait(futures)
-
-        return values
+        if self._executor is None:
+            for idx, first, last in chunks:
+                _fill_chunk(child_seeds[idx], out, first, last)
+        else:
+            concurrent.futures.wait(
+                self._executor.submit(_fill_chunk, child_seeds[idx], out, first, last)
+                for idx, first, last in chunks
+            )
 
     def __del__(self):
-        self.executor.shutdown(False)
+        if self._executor is not None:
+            self._executor.shutdown(False)

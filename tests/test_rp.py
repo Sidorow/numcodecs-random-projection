@@ -195,16 +195,20 @@ def test_multithreaded_rng_thread_count_invariance():
     shape = (2000, 100)
 
     rng_1t = MultithreadedRNG(seed=seed, threads=1)
-    result_1t = rng_1t.fill_arr(shape)
+    result_1t = np.empty(shape)
+    rng_1t.fill_arr(out=result_1t)
 
     rng_2t = MultithreadedRNG(seed=seed, threads=2)
-    result_2t = rng_2t.fill_arr(shape)
+    result_2t = np.empty(shape)
+    rng_2t.fill_arr(out=result_2t)
 
     rng_4t = MultithreadedRNG(seed=seed, threads=4)
-    result_4t = rng_4t.fill_arr(shape)
+    result_4t = np.empty(shape)
+    rng_4t.fill_arr(out=result_4t)
 
     rng_8t = MultithreadedRNG(seed=seed, threads=8)
-    result_8t = rng_8t.fill_arr(shape)
+    result_8t = np.empty(shape)
+    rng_8t.fill_arr(out=result_8t)
 
     np.testing.assert_array_equal(
         result_1t, result_2t, err_msg="1-thread vs 2-thread RNG output mismatch"
@@ -279,12 +283,18 @@ def test_invalid_data():
     codec = numcodecs.registry.get_codec(dict(id="rp", cr=10.0))
 
     # Test with integer data
-    with pytest.raises(ValueError, match=r"RPCodec requires .* floating-point data"):
+    with pytest.raises(ValueError, match=r"RPCodec requires floating-point data"):
         codec.encode(np.random.randint(50, 100, size=(3, 4)))
 
-    # Test with non-2D data
-    with pytest.raises(ValueError, match=r"RPCodec requires 2D .* data"):
-        codec.encode(np.random.randn(50, 100, 3))
+
+def test_nd_data():
+    codec = numcodecs.registry.get_codec(dict(id="rp", cr=10.0))
+
+    for shape in [(), (100,), (50, 100), (50, 100, 3), (25, 50, 3, 4)]:
+        encoded = codec.encode(np.asarray(np.random.randn(*shape)))
+        decoded = codec.decode(encoded)
+        assert decoded.dtype == np.dtype(float)
+        assert decoded.shape == shape
 
 
 def test_robustness():
