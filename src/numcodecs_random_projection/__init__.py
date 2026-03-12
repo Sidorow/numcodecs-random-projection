@@ -251,9 +251,8 @@ class RPCodec(Codec):
 
         k: int
         if self._mae is not None:
-            k = self._estimate_k_for_target_mae(standardised_matrix)
+            k = self._estimate_k_for_target_mae(D, float(self._mae / data_std))
         elif self._cr is not None:
-            assert self._cr is not None
             k = int(ceil(D / self._cr))
         else:
             assert self._k is not None
@@ -451,19 +450,19 @@ class RPCodec(Codec):
 
     def _estimate_k_for_target_mae(
         self,
-        data: np.ndarray[tuple[Nc, Dc], np.dtype[Fc]],
+        D: int,
+        mae: float,
     ) -> int:
         """
-        Estimate the number of dimensions 'k' for the projected space based on
-        the standardized input data and targeted MAE.
-
-        This method assumes standardized input data prior to calling via encode
-        method.
+        Estimate the number of dimensions `k` for the projected space based on
+        the number of dimensions `D` and the targeted MAE.
 
         Parameters
         ----------
-        data : np.ndarray[tuple[Nc, Dc], np.dtype[Fc]]
-            Standardized input data (mean=0, std=1).
+        D : int
+            Number of dimensions in the original space.
+        mae : float
+            Target MAE (standardized if the data has been standardized).
 
         Returns
         -------
@@ -471,16 +470,11 @@ class RPCodec(Codec):
             Estimated k (number of projected dimensions)
         """
 
-        _N, D = data.shape
-
-        assert self._mae is not None
-        target_mae = self._mae
-
         match self._method:
             case RPMethod.gaussian:
-                ratio = 1 - target_mae
+                ratio = 1 - mae
             case RPMethod.dct:
-                ratio = 1 - np.sqrt(target_mae * 4)
+                ratio = 1 - np.sqrt(mae * 4)
             case _:
                 assert_never(self._method)
 

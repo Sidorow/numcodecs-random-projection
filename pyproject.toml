@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "numcodecs-random-projection"
-version = "0.1.0a4"
+version = "0.1.0a5"
 dependencies = [
     "leb128~=1.0.8",
     "numcodecs>=0.13.0,<0.17",
