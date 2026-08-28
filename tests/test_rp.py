@@ -17,16 +17,16 @@ TEST_DATA = DATA.t.squeeze().values
 
 def test_from_config():
     codec = numcodecs.registry.get_codec(dict(id="rp", cr=10.0))
-    print(codec.__class__.__name__)
     assert codec.__class__.__name__ == "RPCodec"
     assert codec.__class__.__module__ == "numcodecs_random_projection"
     assert codec._cr == 10.0
+    assert repr(codec) == "RPCodec(cr=10.0, method='dct', debug=False)"
 
     codec2 = numcodecs.registry.get_codec(dict(id="rp", k=20))
-    print(codec2.__class__.__name__)
     assert codec2.__class__.__name__ == "RPCodec"
     assert codec2.__class__.__module__ == "numcodecs_random_projection"
     assert codec2._k == 20
+    assert repr(codec2) == "RPCodec(k=20, method='dct', debug=False)"
 
 
 def check_roundtrip(data: np.ndarray):
