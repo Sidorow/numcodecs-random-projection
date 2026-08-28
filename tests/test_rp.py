@@ -112,7 +112,8 @@ def test_seed():
 def test_seed_blocks():
     # Test that block methods produce same results for Gaussian method with same seed
     # Different seeds should produce different results
-    data = np.random.randn(100, 50).astype(np.float64)
+    rng = np.random.default_rng()
+    data = rng.standard_normal(size=(100, 50), dtype=np.float64)
 
     codec1 = numcodecs.registry.get_codec(
         dict(
@@ -164,8 +165,9 @@ def test_reconstruct_seed():
     # Test that reconstruction can be done with a different codec
     # Should produce same reconstruction as original codec from which data was encoded
     # Use large data to trigger block processing
-    small_data = np.random.randn(100, 50).astype(np.float64)
-    large_data = np.random.randn(100, 3000).astype(np.float64)
+    rng = np.random.default_rng()
+    small_data = rng.standard_normal(size=(100, 50), dtype=np.float64)
+    large_data = rng.standard_normal(size=(100, 3000), dtype=np.float64)
 
     codec1 = numcodecs.registry.get_codec(
         dict(id="rp", method="gaussian", k=1500, seed=42)
@@ -224,7 +226,8 @@ def test_multithreaded_rng_thread_count_invariance():
 def test_block_vs_full_matrix_dct():
     # Test that block and full matrix methods produce same results for DCT method
     # Both methods should produce (numerically) identical results for the same data in float64
-    data = np.random.randn(100, 50).astype(np.float64)
+    rng = np.random.default_rng()
+    data = rng.standard_normal(size=(100, 50), dtype=np.float64)
 
     full_codec = numcodecs.registry.get_codec(
         dict(id="rp", method="dct", cr=5.0, max_block_memory=-1)
@@ -282,16 +285,21 @@ def test_invalid_data():
     # Test that non-floating-point data raises error
     codec = numcodecs.registry.get_codec(dict(id="rp", cr=10.0))
 
+    rng = np.random.default_rng()
+    data = rng.integers(50, 100, size=(3, 4))
+
     # Test with integer data
     with pytest.raises(ValueError, match=r"RPCodec requires floating-point data"):
-        codec.encode(np.random.randint(50, 100, size=(3, 4)))
+        codec.encode(data)
 
 
 def test_nd_data():
     codec = numcodecs.registry.get_codec(dict(id="rp", cr=10.0))
 
+    rng = np.random.default_rng()
+
     for shape in [(), (100,), (50, 100), (50, 100, 3), (25, 50, 3, 4)]:
-        encoded = codec.encode(np.asarray(np.random.randn(*shape)))
+        encoded = codec.encode(np.asarray(rng.standard_normal(shape)))
         decoded = codec.decode(encoded)
         assert decoded.dtype == np.dtype(float)
         assert decoded.shape == shape

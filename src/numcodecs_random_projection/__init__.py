@@ -265,7 +265,8 @@ class RPCodec(Codec):
                 # no random seed is needed, keep the output fully reproducible
                 seed = 0
             else:
-                seed = np.random.randint(0, 2**31 - 1)
+                rng = np.random.default_rng()
+                seed = int(rng.integers(0, 2**31 - 1))
         else:
             seed = self._seed
 
@@ -650,7 +651,7 @@ class RPCodec(Codec):
     ) -> int:
         if max_memory is None:
             try:
-                import psutil
+                import psutil  # noqa: PLC0415
 
                 available = psutil.virtual_memory().available
             except ImportError:

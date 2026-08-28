@@ -44,7 +44,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Setup the Python venv
-        run: uv sync --all-extras --dev
+        run: uv sync --all-packages --group test
 
       - name: Run tests
         run: uv run pytest -v
@@ -60,7 +60,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Setup the Python venv
-        run: uv sync --all-extras --dev
+        run: uv sync --all-packages --group typecheck
 
       - name: Typecheck numcodecs-random-projection
         run: uv run mypy -p numcodecs_random_projection
