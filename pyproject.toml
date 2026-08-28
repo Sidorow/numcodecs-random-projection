@@ -41,7 +41,7 @@ classifiers = [
 ]
 
 [project.urls]
-Documentation = "https://sidorow.github.io/numcodecs-random-projection/"
+Documentation = "https://numcodecs-random-projection.readthedocs.io"
 Repository = "https://github.com/Sidorow/numcodecs-random-projection.git"
 Issues = "https://github.com/Sidorow/numcodecs-random-projection/issues"
 
