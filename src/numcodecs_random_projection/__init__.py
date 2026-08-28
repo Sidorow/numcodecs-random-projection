@@ -23,6 +23,7 @@ from typing_extensions import (
     Buffer,  # MSPV 3.12
     Unpack,  # MSPV 3.11
     assert_never,  # MSPV 3.11
+    override,  # MSPV 3.12
 )
 
 from .mt_rng import MultithreadedRNG
@@ -99,7 +100,7 @@ class RPCodec(Codec):
       before encoding it with this codec
     """
 
-    __slots__ = ("_mae", "_cr", "_k", "_method", "_seed", "_debug")
+    __slots__: tuple[str, ...] = ("_mae", "_cr", "_k", "_method", "_seed", "_debug")
     _mae: None | float
     _cr: None | float
     _k: None | int
@@ -447,6 +448,10 @@ class RPCodec(Codec):
         config["debug"] = self._debug
 
         return config
+
+    @override
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({', '.join(f'{k}={v!r}' for k, v in self.get_config().items() if k != 'id')})"
 
     def _estimate_k_for_target_mae(
         self,
