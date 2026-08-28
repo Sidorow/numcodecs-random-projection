@@ -430,8 +430,10 @@ class RPCodec(Codec):
         """
         Get codec configuration.
 
-        Returns:
-            dict: Codec configuration.
+        Returns
+        -------
+        config : dict
+            Codec configuration.
         """
         config: dict[str, str | int | float | bool] = dict(id=type(self).codec_id)
 
@@ -474,7 +476,7 @@ class RPCodec(Codec):
 
         Returns
         -------
-        int
+        k : int
             Estimated k (number of projected dimensions)
         """
 
@@ -523,7 +525,7 @@ class RPCodec(Codec):
 
         Returns
         -------
-        np.ndarray[tuple[Nc, Ki], np.dtype[Fc]]
+        projected : np.ndarray[tuple[Nc, Ki], np.dtype[Fc]]
             Projected data with shape (N, K)
         """
 
@@ -600,7 +602,7 @@ class RPCodec(Codec):
 
         Returns
         -------
-        np.ndarray[tuple[Nc, Di], np.dtype[Fc]]
+        reconstructed : np.ndarray[tuple[Nc, Di], np.dtype[Fc]]
             Reconstructed data with shape (N, D)
         """
 
