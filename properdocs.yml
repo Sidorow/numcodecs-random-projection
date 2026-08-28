@@ -1,4 +1,8 @@
 site_name: numcodecs-random-projection
+site_author: Sami Sidoroff
+site_url: !ENV READTHEDOCS_CANONICAL_URL
+repo_url: https://github.com/Sidorow/numcodecs-random-projection
+edit_uri: blob/main/
 
 strict: true
 
@@ -22,11 +26,9 @@ nav:
 plugins:
   - mkdocstrings-python-generator:
       source_dirs:
-        - nav_heading: [Documentation]
+        - nav_heading: [API Reference]
           base: src
-  - exclude:
-      glob:
-        - requirements.txt
+          edit_uri: blob/main/src/
   - search
   - mkdocstrings:
       enable_inventory: true
@@ -45,6 +47,7 @@ plugins:
               separate_signature: true
               show_signature_annotations: true
               signature_crossrefs: true
+              relative_crossrefs: true
               show_root_toc_entry: false
               merge_init_into_class: true
               summary:
@@ -53,9 +56,10 @@ plugins:
                   functions: true
                   modules: true
           inventories:
-            - https://docs.python.org/3.12/objects.inv
-            - https://numpy.org/doc/2.2/objects.inv
-            - https://numcodecs.readthedocs.io/en/v0.16.0/objects.inv
+            - https://docs.python.org/3.11/objects.inv
+            - https://numpy.org/doc/2.0/objects.inv
+            - https://numcodecs.readthedocs.io/en/v0.16.5/objects.inv
+            - https://typing-extensions.readthedocs.io/en/stable/objects.inv
 
 watch:
   - src

@@ -22,13 +22,10 @@ jobs:
         run: uv python install
 
       - name: Setup the Python venv with the compressor
-        run: uv sync --all-packages
-
-      - name: Install mkdocs dependencies
-        run: uv pip install -r docs/requirements.txt
+        run: uv sync --all-packages --group docs
 
       - name: Build the documentation
-        run: uv run mkdocs build
+        run: uv run properdocs build
 
       - name: Deploy the Documentation
         uses: peaceiris/actions-gh-pages@v4
