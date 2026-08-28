@@ -26,7 +26,7 @@ from typing_extensions import (
     override,  # MSPV 3.12
 )
 
-from .mt_rng import MultithreadedRNG
+from ._mt_rng import MultithreadedRNG
 
 LOG = logging.getLogger(__name__)
 
@@ -206,14 +206,16 @@ class RPCodec(Codec):
             - Projected data
             - Compression parameters
         """
-        data = np.copy(numcodecs.compat.ensure_ndarray(buf))
+        data: np.ndarray[tuple[int, ...], np.dtype[np.floating]] = np.copy(
+            numcodecs.compat.ensure_ndarray(buf)
+        )
 
         if not np.issubdtype(data.dtype, np.floating):
             raise ValueError(
                 f"RPCodec requires floating-point data, got {data.dtype} data"
             )
 
-        np.nan_to_num(data, copy=False, nan=0, posinf=0, neginf=0)
+        _ = np.nan_to_num(data, copy=False, nan=0, posinf=0, neginf=0)
 
         # store the data shape, dtype, mean, and std before any processing
         shape = data.shape
@@ -293,38 +295,38 @@ class RPCodec(Codec):
         # shape ias ibs dtype K block_size seed mean std projected
         bio = BytesIO()
 
-        bio.write(leb128.u.encode(len(shape)))
+        _ = bio.write(leb128.u.encode(len(shape)))
         for dim in shape:
-            bio.write(leb128.u.encode(dim))
+            _ = bio.write(leb128.u.encode(dim))
 
-        bio.write(leb128.u.encode(len(ias)))
+        _ = bio.write(leb128.u.encode(len(ias)))
         for ia in ias:
-            bio.write(leb128.u.encode(ia))
-        bio.write(leb128.u.encode(len(ibs)))
+            _ = bio.write(leb128.u.encode(ia))
+        _ = bio.write(leb128.u.encode(len(ibs)))
         for ib in ibs:
-            bio.write(leb128.u.encode(ib))
+            _ = bio.write(leb128.u.encode(ib))
 
         dtype_str = dtype.str.encode("ascii")
-        bio.write(leb128.u.encode(len(dtype_str)))
-        bio.write(dtype_str)
+        _ = bio.write(leb128.u.encode(len(dtype_str)))
+        _ = bio.write(dtype_str)
 
-        bio.write(leb128.u.encode(k))
-        bio.write(leb128.u.encode(block_size))
-        bio.write(leb128.u.encode(seed))
+        _ = bio.write(leb128.u.encode(k))
+        _ = bio.write(leb128.u.encode(block_size))
+        _ = bio.write(leb128.u.encode(seed))
 
         data_mean = np.array(data_mean, dtype=dtype)
         mean_bytes = data_mean.astype(data_mean.dtype.newbyteorder("<")).tobytes()
-        bio.write(leb128.u.encode(len(mean_bytes)))
-        bio.write(mean_bytes)
+        _ = bio.write(leb128.u.encode(len(mean_bytes)))
+        _ = bio.write(mean_bytes)
 
         data_std = np.array(data_std, dtype=dtype)
         std_bytes = data_std.astype(data_std.dtype.newbyteorder("<")).tobytes()
-        bio.write(leb128.u.encode(len(std_bytes)))
-        bio.write(std_bytes)
+        _ = bio.write(leb128.u.encode(len(std_bytes)))
+        _ = bio.write(std_bytes)
 
         proj_bytes = projected.astype(projected.dtype.newbyteorder("<")).tobytes()
-        bio.write(leb128.u.encode(len(proj_bytes)))
-        bio.write(proj_bytes)
+        _ = bio.write(leb128.u.encode(len(proj_bytes)))
+        _ = bio.write(proj_bytes)
 
         return bio.getvalue()
 
@@ -347,7 +349,7 @@ class RPCodec(Codec):
             Reconstructed data with original shape and dtype.
         """
 
-        data = numcodecs.compat.ensure_bytes(buf)
+        data: bytes = numcodecs.compat.ensure_bytes(buf)
 
         bio = BytesIO(data)
 
@@ -375,13 +377,13 @@ class RPCodec(Codec):
 
         mean_len, _ = leb128.u.decode_reader(bio)
         mean_bytes = bio.read(mean_len)
-        data_mean = np.frombuffer(
+        data_mean: np.floating = np.frombuffer(
             mean_bytes, dtype=dtype.newbyteorder("<"), count=1
         ).astype(dtype)[0]
 
         std_len, _ = leb128.u.decode_reader(bio)
         std_bytes = bio.read(std_len)
-        data_std = np.frombuffer(
+        data_std: np.floating = np.frombuffer(
             std_bytes, dtype=dtype.newbyteorder("<"), count=1
         ).astype(dtype)[0]
 
@@ -565,7 +567,7 @@ class RPCodec(Codec):
                 progress.set_postfix_str(
                     f"encode N={N} D={D} Kb={actual_block_size} Rgen={np.round(block_timing[0], 2)}s matmul={np.round(matmul_timing[0], 2)}s"
                 )
-                progress.update(actual_block_size)
+                _ = progress.update(actual_block_size)
 
         return out
 
@@ -632,7 +634,7 @@ class RPCodec(Codec):
             matmul_timing = [0.0]
             with self._debug_timing(matmul_timing):
                 projected_block = projected[:, k_start:k_end]
-                np.matmul(projected_block, R_block.T, out=rec_block)
+                _ = np.matmul(projected_block, R_block.T, out=rec_block)
 
             acc_timing = [0.0]
             with self._debug_timing(acc_timing):
@@ -642,13 +644,15 @@ class RPCodec(Codec):
                 progress.set_postfix_str(
                     f"decode N={N} D={D} Kb={actual_block_size} Rgen={np.round(block_timing[0], 2)}s matmul={np.round(matmul_timing[0], 2)}s acc={np.round(acc_timing[0], 2)}s"
                 )
-                progress.update(actual_block_size)
+                _ = progress.update(actual_block_size)
 
         return out
 
     def _compute_block_size(
-        self, D: int, dtype: np.dtype, max_memory: None | int
+        self, D: int, dtype: np.dtype[Fc], max_memory: None | int
     ) -> int:
+        available: int
+
         if max_memory is None:
             try:
                 import psutil  # noqa: PLC0415
@@ -766,7 +770,7 @@ class RPCodec(Codec):
                 out[:] = 2 * i + 1
                 out[:] *= m * np.pi
                 out[:] /= 2 * D
-                np.cos(out, out=out)
+                _ = np.cos(out, out=out)
                 out *= alpha_m
             case RPMethod.gaussian:
                 scale = np.sqrt(1 / K)
