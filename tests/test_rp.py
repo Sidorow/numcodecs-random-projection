@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from numcodecs_random_projection.mt_rng import MultithreadedRNG
+from numcodecs_random_projection._mt_rng import MultithreadedRNG
 
 TEST_DIR = Path(__file__).parent
 TEST_DATA_PATH = TEST_DIR / "data" / "test_data.nc"

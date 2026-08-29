@@ -1,4 +1,5 @@
 import concurrent.futures
+import math
 import multiprocessing
 
 import numpy as np
@@ -7,16 +8,16 @@ from numpy.random import PCG64, Generator, SeedSequence
 
 class MultithreadedRNG:
     """
-    Multithreaded random number generator using numpy's PCG64 generator
-    Based on https://numpy.org/doc/stable/reference/random/multithreading.html.
+    Multithreaded random number generator using numpy's PCG64 generator.
+    Based on <https://numpy.org/doc/stable/reference/random/multithreading.html>.
     """
 
-    __slots__ = ("_threads", "_seed_seq", "_executor")
+    __slots__: tuple[str, ...] = ("_threads", "_seed_seq", "_executor")
     _threads: int
     _seed_seq: SeedSequence
     _executor: None | concurrent.futures.ThreadPoolExecutor
 
-    _ROWS_PER_CHUNK = 1024
+    _ROWS_PER_CHUNK: int = 1024
 
     def __init__(self, seed: int, threads: None | int = None):
         """
@@ -59,11 +60,11 @@ class MultithreadedRNG:
         n_rows, _n_cols = out.shape
 
         chunk_step = self._ROWS_PER_CHUNK
-        n_chunks = max(1, int(np.ceil(n_rows / chunk_step)))
+        n_chunks = max(1, int(math.ceil(n_rows / chunk_step)))
 
         child_seeds = self._seed_seq.spawn(n_chunks)
 
-        chunks = []
+        chunks: list[tuple[int, int, int]] = []
         for i in range(n_chunks):
             first = i * chunk_step
             last = min((i + 1) * chunk_step, n_rows)
@@ -71,7 +72,12 @@ class MultithreadedRNG:
                 break
             chunks.append((i, first, last))
 
-        def _fill_chunk(seed, out, first, last):
+        def _fill_chunk(
+            seed: SeedSequence,
+            out: np.ndarray[tuple[int, int], np.dtype[np.floating]],
+            first: int,
+            last: int,
+        ):
             rng = Generator(PCG64(seed))
             view = out[first:last]
             view[...] = rng.standard_normal(view.shape)
@@ -80,7 +86,7 @@ class MultithreadedRNG:
             for idx, first, last in chunks:
                 _fill_chunk(child_seeds[idx], out, first, last)
         else:
-            concurrent.futures.wait(
+            _ = concurrent.futures.wait(
                 self._executor.submit(_fill_chunk, child_seeds[idx], out, first, last)
                 for idx, first, last in chunks
             )
