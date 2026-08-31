@@ -8,6 +8,12 @@
 
 [`RPCodec`][numcodecs_random_projection.RPCodec] for the [`numcodecs`][numcodecs] buffer compression API.
 
+
+## Citation
+
+Please refer to the [CITATION.cff](https://github.com/Sidorow/numcodecs-random-projection/blob/main/CITATION.cff) file and refer to <https://citation-file-format.github.io> to extract the citation in a format of your choice.
+
+
 ## Funding
 
 The `numcodecs-random-projection` package has been developed as part of [ESiWACE3](https://www.esiwace.eu), the third phase of the Centre of Excellence in Simulation of Weather and Climate in Europe.
