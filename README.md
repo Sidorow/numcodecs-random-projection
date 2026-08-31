@@ -10,6 +10,12 @@
 
 [`numcodecs`]: https://numcodecs.readthedocs.io/en/stable/
 
+
+## Citation
+
+Please refer to the [CITATION.cff](CITATION.cff) file and refer to <https://citation-file-format.github.io> to extract the citation in a format of your choice.
+
+
 ## License
 
 Licensed under the Mozilla Public License, Version 2.0 ([LICENSE](LICENSE) or https://www.mozilla.org/en-US/MPL/2.0/).

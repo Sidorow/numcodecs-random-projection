@@ -1,0 +1,29 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: compression-safeguards
+message: >-
+  If you use this software, please cite it using the
+  metadata from the CITATIONS.cff file.
+type: software
+authors:
+  - given-names: Sami
+    family-names: Sidoroff
+    email: sami.sidoroff@helsinki.fi
+    affiliation: University of Helsinki
+    orcid: 'https://orcid.org/0009-0007-1380-2554'
+  - given-names: Juniper
+    family-names: Tyree
+    email: juniper.tyree@helsinki.fi
+    affiliation: University of Helsinki
+    orcid: 'https://orcid.org/0000-0002-7923-9609'
+repository-code: 'https://github.com/Sidorow/numcodecs-random-projection'
+url: 'https://numcodecs-random-projection.readthedocs.io/en/latest/'
+repository-artifact: 'https://pypi.org/project/numcodecs-random-projection/'
+abstract: >-
+  Random Projection codec for the `numcodecs` buffer compression API
+keywords:
+  - compression
+  - random-projection
+license: MPL-2.0

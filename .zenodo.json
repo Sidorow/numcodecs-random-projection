@@ -1,0 +1,42 @@
+{
+  "title": "numcodecs-random-projection",
+  "description": "Random Projection codec for the `numcodecs` buffer compression API",
+  "access_right": "open",
+  "creators": [
+    {
+      "name": "Sidoroff, Sami",
+      "affiliation": "University of Helsinki",
+      "orcid": "0009-0007-1380-2554"
+    },
+    {
+      "name": "Tyree, Juniper",
+      "affiliation": "University of Helsinki",
+      "orcid": "0000-0002-7923-9609"
+    }
+  ],
+  "keywords": [
+    "compression",
+    "random-projection"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/Sidorow/numcodecs-random-projection/tree/0.1.0a6",
+      "relation": "isSupplementTo",
+      "resource_type": "software",
+      "scheme": "url"
+    }
+  ],
+  "version": "0.1.0a6",
+  "upload_type": "software",
+  "license": "mpl-2.0",
+  "grants": [
+    {
+      "id": "10.13039/501100000780::101093054"
+    },
+    {
+      "id": "10.13039/501100000780::675191"
+    }
+  ],
+  "communities": [{ "identifier": "eu" }, { "identifier": "esiwace" }],
+  "notes": "If you use this software, please cite it using the metadata from the CITATIONS.cff file."
+}
