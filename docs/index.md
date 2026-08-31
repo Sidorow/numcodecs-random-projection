@@ -11,7 +11,7 @@
 
 ## Citation
 
-Please refer to the [CITATION.cff](CITATION.cff) file and refer to <https://citation-file-format.github.io> to extract the citation in a format of your choice.
+Please refer to the [CITATION.cff](https://github.com/Sidorow/numcodecs-random-projection/blob/main/CITATION.cff) file and refer to <https://citation-file-format.github.io> to extract the citation in a format of your choice.
 
 
 ## Funding
