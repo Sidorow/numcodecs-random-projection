@@ -18,6 +18,10 @@ authors:
     email: juniper.tyree@helsinki.fi
     affiliation: University of Helsinki
     orcid: 'https://orcid.org/0000-0002-7923-9609'
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.22197336
+    description: Zenodo
 repository-code: 'https://github.com/Sidorow/numcodecs-random-projection'
 url: 'https://numcodecs-random-projection.readthedocs.io/en/latest/'
 repository-artifact: 'https://pypi.org/project/numcodecs-random-projection/'

@@ -3,6 +3,7 @@
 [![image](https://img.shields.io/pypi/l/numcodecs-random-projection.svg)](https://github.com/Sidorow/numcodecs-random-projection/blob/main/LICENSE)
 [![image](https://img.shields.io/pypi/pyversions/numcodecs-random-projection.svg)](https://pypi.python.org/pypi/numcodecs-random-projection)
 [![image](https://readthedocs.org/projects/numcodecs-random-projection/badge/?version=latest)](https://numcodecs-random-projection.readthedocs.io/en/latest/?badge=latest)
+[![image](https://zenodo.org/badge/DOI/10.5281/zenodo.22197336.svg)](https://doi.org/10.5281/zenodo.22197336)
 
 # numcodecs-random-projection
 
